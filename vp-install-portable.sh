@@ -19,8 +19,6 @@
 #   VP_ROOT       安装根目录，默认 $HOME/.local/lib/vp-helper
 #   VP_STATE_DIR  venv 之外的状态目录，默认 $VP_ROOT/state
 #   VP_PYTHON     Python 解释器（路径或命令）。不设时: 3.12 → uv → 自带运行时
-#   VP_USE_UV     1/0，是否优先用 uv 建 venv（默认 1）
-#   VP_ASK_COOKIE 1 表示每次开赛询问登录方式（默认 0，沿用配置里的 cookie_source）
 #   VP_START_FILE 如果安装成功，写一个 source 该文件即可导出环境变量
 set -euo pipefail
 
@@ -107,54 +105,26 @@ tmux_hint() {
 # 解释器选择
 # ---------------------------------------------------------------------------
 pick_python() {
-    # 统一打印解释器路径；找不到返回空
+    # uv is the only source of Python: it downloads a portable 3.12 that works on
+    # every distribution and on macOS, so nothing distro-specific is bundled.
     if [[ -n "${VP_PYTHON:-}" ]]; then
         local given=""
         if [[ -x "$VP_PYTHON" ]]; then
             given="$VP_PYTHON"
         elif command -v "$VP_PYTHON" >/dev/null 2>&1; then
             given="$(command -v "$VP_PYTHON")"
-        elif [[ "$VP_PYTHON" == "uv" || "${VP_USE_UV:-1}" != "0" ]] && [[ "$VP_PYTHON" =~ ^(uv|python3\.12)$ ]] \
-             && command -v uv >/dev/null 2>&1; then
-            printf '%s' "__UV__"; return 0
         fi
-        # 依赖 wheel 是 cp312，3.13/3.14 装不上；提前拒绝而不是等 pip 报错
-        if [[ -n "$given" ]] && "$given" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' 2>/dev/null; then
+        if [[ -z "$given" ]]; then
+            printf ''; VP_PYTHON_BAD="$VP_PYTHON"; return 1
+        fi
+        # Dependencies are cp312 wheels, so 3.13/3.14 cannot be installed.
+        if "$given" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' 2>/dev/null; then
             printf '%s' "$given"; return 0
         fi
         printf ''; VP_PYTHON_BAD="$VP_PYTHON"; return 1
     fi
-
-    # 1) 系统里的 3.12（依赖 wheel 是 cp312，3.13/3.14 装不上）
-    local p
-    for p in python3.12 python3; do
-        if command -v "$p" >/dev/null 2>&1 \
-           && "$p" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' 2>/dev/null; then
-            printf '%s' "$(command -v "$p")"; return 0
-        fi
-    done
-
-    # 2) 本机 uv（它可以下载一个 3.12；缓存要写到可写位置）
-    if [[ "${VP_USE_UV:-1}" != "0" ]] && command -v uv >/dev/null 2>&1; then
+    if command -v uv >/dev/null 2>&1; then
         printf '%s' "__UV__"; return 0
-    fi
-
-    # 3) 仓库自带的 3.12 运行时
-    local rt="${VP_ROOT}/runtime/python/bin/python3"
-    if [[ ! -x "$rt" ]]; then
-        local arch
-        arch="$(uname -m)"
-        local archive
-        archive="$(ls "$SRC"/runtimes/cpython-3.12*.tar.gz 2>/dev/null | head -n1 || true)"
-        # 只需要 x86_64 版本；arm64 的机器没有内置运行时，只能走 uv / 包管理器
-        if [[ -n "$archive" && "$arch" == "x86_64" ]]; then
-            mkdir -p "$VP_ROOT/runtime"
-            tar -xzf "$archive" -C "$VP_ROOT/runtime" --no-same-owner
-        fi
-    fi
-    if [[ -x "$rt" ]] \
-       && "$rt" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' 2>/dev/null; then
-        printf '%s' "$rt"; return 0
     fi
     printf ''; return 1
 }
@@ -171,7 +141,7 @@ create_venv() {
     rm -rf "$VENV"
     if [[ "$py" == "__UV__" ]]; then
         command -v uv >/dev/null 2>&1 \
-            || die "选择了 uv，但找不到 uv。请安装 uv，或设置 VP_PYTHON 指向一个 Python 3.12"
+            || die "找不到 uv。请先安装: curl -LsSf https://astral.sh/uv/install.sh | sh（或 brew install uv）"
         export_uv_dirs
         info "使用 uv 创建 venv（--python 3.12）"
         # uv 会先自己下载 Python 3.12；若失败，下面的提示会告诉你怎么换解释器
@@ -185,8 +155,7 @@ create_venv() {
             :
         else
             # 有些发行版把 ensurepip 拆到单独的包
-            die "无法用 $py 创建 venv。请先安装 venv/ensurepip（例如 Debian/Ubuntu: python3-venv；
-     Fedora: python3-pip；Arch: 自带；或设置 VP_USE_UV=1 用 uv 创建）"
+            die "无法用 $py 创建 venv。请安装 venv/ensurepip，或不设 VP_PYTHON 让 uv 下载 Python 3.12"
         fi
     fi
     "$VENV/bin/python" -V
@@ -304,6 +273,35 @@ migrate_config() {
     info "迁移配置: $legacy → $cfg"
 }
 
+# 询问比赛目录的保存位置。已配置时回车保留，VP_WORK_DIR 可跳过交互。
+ask_work_dir() {
+    local cfg; cfg="$(config_file)"
+    local current=""
+    if [[ -f "$cfg" ]]; then
+        current="$("$VENV/bin/python" -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf8")).get("work_directory",""))' "$cfg" 2>/dev/null || true)"
+    fi
+    if [[ -n "${VP_WORK_DIR:-}" ]]; then
+        WORK_DIR="$VP_WORK_DIR"
+    elif [[ -t 0 ]]; then
+        local prompt="比赛目录保存位置"
+        [[ -n "$current" ]] && prompt="$prompt [$current]"
+        printf '  %s: ' "$prompt"
+        read -r answer || answer=""
+        WORK_DIR="${answer:-$current}"
+    else
+        WORK_DIR="$current"
+    fi
+    if [[ -z "$WORK_DIR" ]]; then
+        printf '  需要一个目录来放比赛文件夹和 vp_history.csv。\n' >&2
+        printf '  重新运行并输入路径，或设置 VP_WORK_DIR=/path/to/dir\n' >&2
+        exit 1
+    fi
+    WORK_DIR="${WORK_DIR/#\~/$HOME}"
+    mkdir -p "$WORK_DIR" || die "无法创建目录: $WORK_DIR"
+    WORK_DIR="$(cd "$WORK_DIR" && pwd)"
+    info "比赛目录: $WORK_DIR"
+}
+
 write_config() {
     local cfg; cfg="$(config_file)"
     local dir; dir="$(dirname "$cfg")"
@@ -311,14 +309,18 @@ write_config() {
     chmod 700 "$dir" "$VP_STATE_DIR" "$VP_STATE_DIR/vp"
     if [[ -f "$cfg" ]]; then
         # 只补齐缺的键，不覆盖你已有的账号信息
-        "$VENV/bin/python" - "$cfg" "$VP_BIN/submit" <<'PY'
+        "$VENV/bin/python" - "$cfg" "$VP_BIN/submit" "$WORK_DIR" <<'PY'
 import json, os, sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 submit = sys.argv[2]
+work_dir = sys.argv[3]
 cfg = json.loads(path.read_text(encoding="utf8") or "{}")
 changed = False
+if cfg.get("work_directory") != work_dir:
+    cfg["work_directory"] = work_dir
+    changed = True
 for key in ("qoj",):
     account = cfg.setdefault(key, {})
     defaults = {"handle": "", "cookie_source": "manual", "cookie": ""}
@@ -337,14 +339,11 @@ if changed:
 os.chmod(path, 0o600)
 PY
     else
-        # VP_ASK_COOKIE=1：每次开赛都询问登录方式（firefox / 手输 cookie）
-        local ask=""
-        if [[ "${VP_ASK_COOKIE:-0}" == "1" ]]; then ask='"ask_cookie_source": true, '; fi
         cat > "$cfg" <<EOF
 {
+  "work_directory": "$WORK_DIR",
   "qoj": {
     "handle": "",
-    ${ask}"cookie_source": "manual",
     "cookie": "",
     "submit_script": "$VP_BIN/submit"
   }
@@ -436,6 +435,8 @@ EOF
     step "写入入口与配置"
     link_entry
     migrate_config
+    step "比赛目录"
+    ask_work_dir
     write_config
 
     step "验证"
@@ -456,17 +457,13 @@ EOF
 
 下一步:
   1. 在浏览器登录 QOJ，取 Cookie 填到:
-       $VP_ROOT/config/vp/config.json
-     （cookie_source 保持 "manual"；handle 必填；Cookie 只复制值）
-     说明: 项目自带的"从 Firefox 自动导入登录态"只认 ~/.mozilla/firefox 和 Snap 路径。
+       $(config_file)
+     （handle 必填；Cookie 只复制 "=" 后面的值，不要带 Cookie: 前缀）
   2. 验证:  vp qoj <比赛ID>
 
-每次开赛都询问登录方式（firefox / 手输 cookie）:
-  安装时加 VP_ASK_COOKIE=1，或给 config.json 的账号项加 "ask_cookie_source": true
-
 注意:
-  - 比赛目录和 vp_history.csv 固定写到"桌面"（由 xdg-user-dir 决定），不受 XDG_* 影响。
-    无图形桌面的机器会落到 ~/Desktop。
+  - 比赛目录: $WORK_DIR（存在 config.json 的 work_directory）
+    要改位置: 重跑 install 并输入新路径，或直接编辑 work_directory。
   - 卸载:  $0 uninstall   （同时删除程序、状态、缓存和账号配置 ~/.config/vp）
 EOF
 }
@@ -481,15 +478,22 @@ cmd_check() {
     printf '  %-22s %s\n' "state dir" "$VP_STATE_DIR"
 
     step "外部依赖"
-    for c in tmux xdg-user-dir; do
-        if command -v "$c" >/dev/null 2>&1; then
-            printf '  ✔ %-20s %s\n' "$c" "$(command -v "$c")"
-        else
-            if [[ "$c" == tmux ]]; then printf '  ✘ %-20s 缺失，安装方式:\n' "$c"; tmux_hint
-            else printf '  ⚠ %-20s 缺失，桌面目录会回退到 ~/Desktop\n' "$c"; fi
-            [[ "$c" == tmux ]] && ok=1
-        fi
-    done
+    if command -v tmux >/dev/null 2>&1; then
+        printf '  ✔ %-20s %s\n' tmux "$(command -v tmux)"
+    else
+        printf '  ✘ %-20s 缺失，安装方式:\n' tmux; tmux_hint; ok=1
+    fi
+
+    step "比赛目录"
+    local work
+    work="$("$root/venv/bin/python" -c 'from vp_helper.storage import desktop; print(desktop())' 2>&1 || true)"
+    if [[ "$work" == /* && -d "$work" && -w "$work" ]]; then
+        printf '  ✔ %-20s %s\n' "work dir" "$work"
+    else
+        printf '  ✘ %-20s %s\n' "work dir" "$work"
+        printf '     重跑 install 并输入一个可写目录\n'
+        ok=1
+    fi
 
     step "安装文件"
     for f in "$root/venv/bin/vp" "$root/app/third_party/qoj/submit" \
@@ -578,7 +582,7 @@ cmd_uninstall() {
     printf '将删除:\n'
     for t in "${targets[@]}"; do printf '  %s\n' "$t"; done
     [[ ${#targets[@]} -eq 0 ]] && printf '  (没有找到任何安装文件)\n'
-    printf '保留: 桌面上的比赛目录与 vp_history.csv（如果存在）\n'
+    printf '保留: 比赛目录（config.json 的 work_directory）与其中的 vp_history.csv\n'
     if [[ -d "$cfg_dir" || -d "$legacy_cfg" ]]; then
         printf '注意: 账号配置（handle / cookie）也会被删除，无法恢复。\n'
     fi
@@ -629,7 +633,7 @@ case "$command" in
   check       检查依赖、安装完整性与连通性
   uninstall   删除本次安装，包括账号配置（~/.config/vp 或 \$XDG_CONFIG_HOME/vp）
 
-可调环境变量: VP_ROOT  VP_STATE_DIR  VP_PYTHON  VP_USE_UV  VP_START_FILE
+可调环境变量: VP_ROOT  VP_STATE_DIR  VP_PYTHON  VP_START_FILE
 EOF
         ;;
     *) echo "未知命令: $command（可选 install/env/check/uninstall）" >&2; exit 2 ;;

@@ -5,7 +5,6 @@ import csv
 import json
 import os
 from pathlib import Path
-import subprocess
 import tempfile
 
 from .models import VPError
@@ -22,13 +21,17 @@ def state_directory() -> Path:
 
 
 def desktop() -> Path:
-    try:
-        p = subprocess.run(["xdg-user-dir", "DESKTOP"], check=True, capture_output=True, text=True).stdout.strip()
-        if p:
-            return Path(p)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
-    return Path.home() / "Desktop"
+    """Where contest folders and vp_history.csv live.
+
+    The installer asks once and stores the answer, so a machine without an XDG
+    desktop directory (or a user who keeps contests elsewhere) never has files
+    land in an unexpected place.
+    """
+    configured = read_json(config_directory() / "config.json").get("work_directory")
+    if isinstance(configured, str) and configured.strip():
+        return Path(os.path.expanduser(configured.strip())).resolve()
+    raise VPError('No work directory is configured. Run the installer again, or set '
+                  '"work_directory" in ~/.config/vp/config.json.')
 
 
 def write_json(path: Path, data: dict) -> None:

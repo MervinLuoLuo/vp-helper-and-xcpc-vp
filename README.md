@@ -2,23 +2,24 @@
 
 XCPC 虚拟参赛终端助手，支持 QOJ。上方显示成绩与完整提交记录，下方保留比赛目录中的普通 shell。
 
-仓库同时包含 xcpc-vp 浏览器回放前端（`web/`）：`vp` 开赛时会给出网页地址，由你手动打开，真实判题结果自动同步到网页榜单。
+仓库同时包含 [xcpc-vp](https://github.com/coolarec/xcpc-vp) 浏览器回放前端（`web/`）：`vp` 开赛时会给出网页地址，由用户手动打开，真实判题结果自动同步到网页榜单。
 
 当前版本：0.1.15。
 
 ## 安装
 
-支持任意 Linux 发行版（Arch、Debian/Ubuntu、Fedora、openSUSE、Alpine、Void、Gentoo 等）。随仓库提供 Linux x86_64 的独立 Python 3.12 运行时与依赖 wheels，安装到 `~/.local/lib/vp-helper`，不需要 root。
+支持任意 Linux 发行版（Arch、Debian/Ubuntu、Fedora、openSUSE、Alpine、Void、Gentoo 等）和 macOS。Python 3.12 由 [uv](https://astral.sh/uv) 自动下载，依赖从仓库的 `wheels/` 离线安装，装到 `~/.local/lib/vp-helper`，不需要 root。
+
+需要两个外部依赖，安装器不会替你装：
 
 ```bash
-git clone https://github.com/thedyingkai/vp-helper.git
-cd vp-helper
-./vp-install-portable.sh install
+# uv：提供 Python 3.12
+curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS 通用
+# 或
+brew install uv
 ```
 
-安装后可在任意目录使用 `vp` 和 `submit`。Python 运行时与依赖可从仓库离线安装。
-
-tmux 是唯一的系统依赖，安装器不会替你安装：
+tmux：
 
 ```bash
 # Arch
@@ -27,7 +28,19 @@ sudo pacman -S tmux
 sudo apt install tmux
 # Fedora
 sudo dnf install tmux
+# macOS
+brew install tmux
 ```
+
+然后：
+
+```bash
+git clone git@github.com:MervinLuoLuo/vp-helper-qoj-only.git
+cd vp-helper-qoj-only
+./vp-install-portable.sh install
+```
+
+安装后可在任意目录使用 `vp` 和 `submit`。
 
 其他子命令：
 
@@ -65,17 +78,25 @@ vp history
 vp login qoj
 ```
 
-按提示依次输入 handle 和四个 Cookie（`__Host-UOJREMEMBER`、`__Host-UOJSESSID`、`cf_clearance`、`uoj_preferred_language`），其中 `__Host-UOJSESSID` 必填。只复制 `=` 后面的值，不要带 `Cookie:` 前缀或 `Path=` 属性。
+按提示依次输入 handle 和四个 Cookie（`__Host-UOJREMEMBER`、`__Host-UOJSESSID`、`cf_clearance`、`uoj_preferred_language`）
 
-也可以先在 Firefox 登录 QOJ，再运行比赛命令。`vp` 和内置 `submit` 自动读取 Firefox 的登录状态，并通过网站导航中的登录用户核对账号；未填写 handle 时也可以从已验证的浏览器登录自动取得。配置保存在 `~/.config/vp/config.json`（设置 `XDG_CONFIG_HOME` 时为 `$XDG_CONFIG_HOME/vp/config.json`），权限为 600；也可以参考 `config.example.json` 填写。
+Cookie 是唯一的凭据来源，程序不会读取浏览器。配置保存在 `~/.config/vp/config.json`（设置 `XDG_CONFIG_HOME` 时为 `$XDG_CONFIG_HOME/vp/config.json`），权限为 600；也可以参考 `config.example.json` 手动填写。
 
-自动读取支持 Firefox 的普通安装及 Ubuntu Snap 目录，读取该网站的持久 Cookie 和最新会话恢复记录；其他网站及容器、隐私会话不参与导入。程序只读取浏览器文件。验证通过后将登录数据保存到本地配置，账号不匹配或网络验证失败时保留原配置。GET 遇到登录过期会重新读取并验证一次；启动 VP 和提交代码的 POST 不自动重发。Firefox 尚未保存新会话时稍候再运行命令，或登录时勾选“记住我”。
+Cookie 过期时，在浏览器里重新登录 QOJ，取出新的 `Cookie` 请求头值，然后 `vp login qoj` 重新填写。也可以直接编辑配置里的 `qoj.cookie`。
 
-登录过期时，在 Firefox 重新登录同一个账号，再运行原命令即可，无需复制 Cookie。多 Firefox 配置可在对应平台账号中指定 `firefox_profile` 为该 profile 的完整路径；sudo 启动时默认使用原普通用户的 Firefox。root 与普通用户的应用配置仍分别保存，root 使用 `/root/.config/vp/config.json`，普通用户使用自己的 `~/.config/vp/config.json`。
+填写 `cookie` 时只复制请求中 `Cookie` 的值，省略 `Cookie:` 标签和其他请求头。
 
-已有手动配置也可继续使用。要固定使用手动 Cookie，在账号中设置 `"cookie_source": "manual"`；填写 `cookie` 时只复制请求中 `Cookie` 的值，省略 `Cookie:` 标签和其他请求头。
+安装时会询问**比赛目录**，比赛文件夹和 `vp_history.csv` 都放在那里。路径存在 `~/.config/vp/config.json` 的 `work_directory`，例如：
 
-每场比赛在桌面共用一个目录，例如 `2024 ICPC Nanjing Reg`。再次进入保留已有代码和输入数据，更新提交配置与题面；各次 VP 的开始时间和成绩状态独立保存。`submit A.cpp` 在对应比赛目录内运行。
+```json
+{ "work_directory": "~/contests", "qoj": { ... } }
+```
+
+改位置的方式：重跑 `install` 时输入新路径，或直接编辑 `work_directory`。也可以用 `VP_WORK_DIR=/path/to/dir ./vp-install-portable.sh install` 跳过交互。
+
+未配置 `work_directory` 时 `vp` 会直接报错，不会静默写进某个默认目录。
+
+每场比赛在这个目录下共用一个子文件夹，例如 `2024 ICPC Nanjing Reg`。再次进入保留已有代码和输入数据，更新提交配置与题面；各次 VP 的开始时间和成绩状态独立保存。`submit A.cpp` 在对应比赛目录内运行。
 
 请用同一个 Linux 用户运行 `vp` 和 `submit`；root 与普通用户的桌面目录和 VP 状态互相独立。QOJ 提交器会在当前目录、源码所在目录及其上级目录查找 `contest.json`，因此也支持从子目录提交或在别处指定源码路径。当前目录与源码绑定不同比赛、账号或题号时会要求切换到源码的比赛目录；同场同账号的配置以当前目录为准。找不到配置时给出恢复指引。重新运行同一场 `vp` 命令会补齐或刷新提交配置，沿用已经确认的原站开始时间。
 
@@ -94,8 +115,6 @@ vp login qoj
 - `vp history` 增加 `gold`、`silver`、`bronze` 三列，显示原赛正式队终榜的金、银、铜线。每格上行是过题数/罚时，下行是名次界限，例如 `9/1200` 与 `(≤30)`；并列成绩使用相同分界，打星队不计入奖线。比赛完成后保存奖线，旧记录从本地 VP 状态和已核验的原赛缓存补齐。只有奖项名额时过题数/罚时显示 `—`，资格或数据缺失时整格显示 `—`。历史查询不联网，也不改写原有 CSV。
 
 在上方面板用方向键、`PgUp` / `PgDn`、`Home` / `End` 或鼠标滚轮查看提交。`Ctrl+B`、`D` 脱离 tmux 后继续同步；再次运行同一场比赛命令可恢复。按 `q` 关闭评分面板。
-
-QOJ 已完成真实账号联调，包括南京、香港和辽宁省赛的正式排名、奖项和提交记录。
 
 ## 赛时排名与统计
 

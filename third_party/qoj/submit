@@ -36,7 +36,6 @@ from selectolax.lexbor import LexborHTMLParser
 from vp_helper.receipts import qoj_id_from_list, qoj_submission_id, qoj_submission_ids, record_receipt
 from vp_helper.models import VPError
 from vp_helper.submit_context import submission_configuration
-from vp_helper.browser_login import refresh_submission_login
 
 LANG_MAPPING = {
     '.cpp': 'C++20',
@@ -63,7 +62,6 @@ try:
     if missing:
         raise VPError(f'{config_path} is missing QOJ fields: ' + ', '.join(missing)
                       + '. Run vp qoj ID to regenerate the submission configuration.')
-    refresh_submission_login(config_path, contest, 'qoj')
 except VPError as exc:
     raise SystemExit('submit: ' + str(exc)) from None
 

@@ -19,7 +19,6 @@ from rich.table import Table
 from rich import box
 
 from .models import Contest, Reference, Submission, VPError
-from .browser_login import browser_fields, refresh_browser_account
 from .history_lines import enrich_history
 from .parsing import contest_url, contest_id_url
 from .receipts import ReceiptReader
@@ -35,8 +34,6 @@ def adapter(url: str, config: dict):
     _, _, canonical = contest_url(url)
     return QOJ(canonical, config.get("qoj", {}))
 
-
-SOURCE_NAMES = {"firefox": "Firefox profile", "manual": "manually entered cookie"}
 
 # Cookies QOJ sets on path "/" for qoj.ac, in the order the login wizard asks for
 # them.  Only the session cookie is required; the rest are kept because the
@@ -172,26 +169,6 @@ def _say(lines, handle) -> None:
     handle.flush()
 
 
-def choose_source(site: str, current: str, handle) -> str:
-    """Let the user pick how this run authenticates; Enter keeps the stored choice."""
-    default = current if current in SOURCE_NAMES else "firefox"
-    firefox = SOURCE_NAMES["firefox"] + (" (default)" if default == "firefox" else "")
-    manual = SOURCE_NAMES["manual"] + (" (default)" if default == "manual" else "")
-    _say([f"How should {site} log in?",
-          f"  [1] {firefox} — read-only import from the browser",
-          f"  [2] {manual} — prompt for the Cookie header value"], handle)
-    while True:
-        answer = ask(f"Choice [{'12'[default == 'manual']}] (1/2, Enter keeps {default}): ",
-                     handle=handle).strip()
-        if not answer:
-            return default
-        if answer.lower() in ("1", "firefox", "ff"):
-            return "firefox"
-        if answer.lower() in ("2", "manual"):
-            return "manual"
-        _say(["Please answer 1 or 2."], handle)
-
-
 def login_name(platform: str) -> str:
     return "qoj"
 
@@ -254,70 +231,32 @@ def load_account(platform: str) -> dict:
     config = read_json(path)
     account = config.setdefault(platform, {})
     site = "QOJ"
-    # Never let an imported or stale cookie satisfy a manual choice silently.
-    manual_wanted = account.get("cookie_source") == "manual"
-    picked_manual = False
     handle, interactive = terminal_handle()
     try:
-        # Per-run choice: ask only when enabled; Enter keeps the stored default.
-        if account.get("ask_cookie_source"):
-            if not interactive:
-                raise VPError(f"{path} asks for a cookie source on every run, but no terminal is "
-                              "available to prompt on. Unset ask_cookie_source for unattended use.")
-            previous = account.get("cookie_source")
-            source = choose_source(site, previous, handle)
-            picked_manual = source == "manual" and previous != "manual"
-            if picked_manual:
-                account.pop("cookie", None)  # an explicit pick always asks for a new cookie
-            account["cookie_source"] = source
-            manual_wanted = source == "manual"
-
-        before = dict(account)
-        if not manual_wanted:
-            refresh_browser_account(platform, account)
-            if account != before:
+        if interactive and not account.get("cookie"):
+            # A cookie is the only credential now that the browser import is
+            # gone, so a first run asks for it instead of failing later.
+            value = prompt_cookie(site, platform, account, handle)
+            if value:
+                account["cookie"] = value
                 write_json(path, config)
-        elif interactive and (picked_manual or not account.get("cookie")):
-            # An explicit "2" re-enters the cookies; an empty cookie falls through
-            # to the login hint below instead of prompting mid-startup.
-            stored = account.get("cookie", "")
-            if picked_manual or stored:
-                value = prompt_cookie(site, platform, account, handle)
-                if value:
-                    account["cookie"] = value
-                    write_json(path, config)
-                elif picked_manual and not stored:
-                    raise VPError(f"No {site} cookie was entered; no native VP was started.")
-                elif stored:
-                    _say(["Keeping the stored cookie."], handle)
         if not account.get("cookie"):
-            if account.get("cookie_source") == "manual":
-                raise VPError(f"No {site} cookie is configured. Run: vp login {login_name(platform)}")
-            raise VPError(f"No matching Firefox login was found for {site}. "
-                          "Log in to the site in Firefox, then run the same vp command again.")
-        required = ("handle", "cookie")
-        missing = [field for field in required if not account.get(field)]
+            raise VPError(f"No {site} cookie is configured. Run: vp login {login_name(platform)}")
+        missing = [field for field in ("handle", "cookie") if not account.get(field)]
         if missing and not interactive:
             raise VPError(f"Missing {platform} account fields {', '.join(missing)} in {path}")
-        missing = [field for field in missing if field != "cookie"]
         if missing:
             _say([f"First use: configure the existing {platform} login session."], handle)
             labels = {"handle": "Account handle",
                       "cookie": "Browser login Cookie (copy the Cookie value only)"}
             for field in missing:
                 # Cookie and handle are both plain text: a hidden paste cannot be
-                # checked, and these values are not passwords.  Only the CF API
-                # secret stays hidden.
+                # checked, and these values are not passwords.
                 value = ask(labels[field] + ": ", handle=handle)
                 if not value:
                     raise VPError("An account field was empty; no native VP was started.")
                 account[field] = value
             write_json(path, config)
-        if not account.get("cookie"):
-            if account.get("cookie_source") == "manual":
-                raise VPError(f"No {site} cookie is configured. Run: vp login {login_name(platform)}")
-            raise VPError(f"No matching Firefox login was found for {site}. "
-                          "Log in to the site in Firefox, then run the same vp command again.")
     finally:
         if handle is not None:
             handle.close()
@@ -352,7 +291,7 @@ def configure_submit(api, contest: Contest, directory: Path) -> None:
     ids = [int(value) for value in contest.problems.values()]
     if not bundled and ids != list(range(ids[0], ids[0] + len(ids))):
         raise VPError("This QOJ contest has nonconsecutive problem IDs. Use the installed submit script with problem_ids support.")
-    write_json(directory / "contest.json", {**api.submit_configuration(contest), **browser_fields(api.account)})
+    write_json(directory / "contest.json", api.submit_configuration(contest))
     if bundled:
         tool = Path("/opt/vp-helper/current/third_party") / "qoj" / "submit"
         if not tool.is_file() or not os.access(tool, os.X_OK):
@@ -397,6 +336,12 @@ def launch(state_path: Path, state: dict) -> None:
     try:
         subprocess.run(["tmux", "set-option", "-t", name, "remain-on-exit", "on"], check=True)
         subprocess.run(["tmux", "set-option", "-t", name, "mouse", "on"], check=True)
+        # -c only fixes the first window. tmux 3.8 removed default-path, so a
+        # window opened later would land wherever the tmux server was started;
+        # the hook moves each new shell into the contest directory instead.
+        subprocess.run(["tmux", "set-hook", "-t", name, "after-new-window",
+                        f'run-shell "tmux send-keys -t #{{window_id}} '
+                        f'\\"cd {shlex.quote(str(directory))}\\" C-m"'], check=True)
         shell = os.environ.get("SHELL", "/bin/bash")
         subprocess.run(["tmux", "split-window", "-v", "-l", str(shell_rows), "-t", name,
                         "-c", directory, "exec " + shlex.quote(shell)], check=True)
@@ -435,10 +380,10 @@ def verify_login(platform: str, api) -> None:
 
 
 def prepare_start(url: str) -> tuple[Path, dict]:
-    if sys.platform != "linux":
-        raise VPError("vp is supported on Ubuntu only.")
+    if sys.platform not in ("linux", "darwin"):
+        raise VPError(f"vp runs on Linux and macOS, not {sys.platform}.")
     if not sys.stdin.isatty():
-        raise VPError("Run vp in an interactive Ubuntu terminal.")
+        raise VPError("Run vp in an interactive terminal.")
     if shutil.which("tmux") is None:
         raise VPError("tmux is missing; run the installer.")
     platform, _, canonical = contest_url(url)
@@ -784,7 +729,7 @@ def _probe_login(platform: str, account: dict) -> tuple[str, set]:
     from .http import WebSession
     from bs4 import BeautifulSoup
     site = "qoj.ac"
-    web = WebSession(f"https://{site}", account, auto_refresh=False)
+    web = WebSession(f"https://{site}", account)
     try:
         response = web.session.get(f"https://{site}/", params={"locale": "en"}, timeout=(10, 30))
         final = response.url
@@ -829,7 +774,6 @@ def login_check(platform: str) -> None:
             account["handle"] = existing
         else:
             raise VPError("A handle is required; vp cannot tell which account is signed in.")
-        account["cookie_source"] = "manual"
         cookie = cookie_wizard(platform, account, handle)
         if not cookie:
             raise VPError("No cookie was entered.")

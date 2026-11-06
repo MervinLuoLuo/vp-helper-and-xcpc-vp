@@ -63,16 +63,9 @@ except ImportError:  # pragma: no cover - curl_cffi not installed
 
 
 class WebSession:
-    def __init__(self, origin: str, account: dict, *, auto_refresh: bool = True):
+    def __init__(self, origin: str, account: dict):
         self.origin = origin.rstrip("/")
         self.account = account
-        self._browser_checked = False
-        # A per-run choice (ask_cookie_source) is resolved by cli before a session
-        # exists, so never re-import here; it would silently override manual input.
-        self._auto_refresh = (auto_refresh and bool(account.get("handle"))
-                              and not account.get("ask_cookie_source")
-                              and account.get("cookie_source") != "manual"
-                              and urlsplit(self.origin).hostname == "qoj.ac")
         if _IMPERSONATE:
             # curl_cffi supplies the browser headers that match the impersonated
             # fingerprint.  Do not override them with the config's user_agent --
@@ -98,23 +91,8 @@ class WebSession:
                 # Some backends expose a narrower Cookies API.
                 self.session.cookies.set(key, value.value)
 
-    def _refresh_browser(self, *, force: bool = False) -> bool:
-        if not self._auto_refresh:
-            return False
-        from .browser_login import refresh_browser_account
-        platform = "qoj"
-        if not refresh_browser_account(platform, self.account, force=force):
-            return False
-        self.session.cookies.clear()
-        self._set_cookies(self.account["cookie"])
-        return True
-
     def get(self, url: str, *, retry: bool = True, **kwargs) -> object:
-        if not self._browser_checked:
-            self._browser_checked = True
-            self._refresh_browser()
         host = urlsplit(url).hostname
-        refreshed = False
         retries = _RETRY_TOTAL if retry else 0
         for attempt in range(retries + 1):
             if attempt:
@@ -122,12 +100,6 @@ class WebSession:
                 time.sleep(_RETRY_BACKOFF * 2 ** (attempt - 1))
             try:
                 r = self.session.get(url, timeout=(10, 40), **kwargs)
-                if (not refreshed and r.status_code == 200
-                        and urlsplit(r.url).path.rstrip("/") in ("/login", "/enter")):
-                    refreshed = True
-                    if self._refresh_browser(force=True):
-                        # Only an idempotent GET is repeated after refreshing login.
-                        r = self.session.get(url, timeout=(10, 40), **kwargs)
             except _RequestException as exc:
                 if attempt == retries:
                     raise VPError(f"Connection failed: {host} ({type(exc).__name__})") from None
@@ -152,11 +124,8 @@ class WebSession:
         landing = urlsplit(r.url)
         if landing.path.rstrip("/") in ("/login", "/enter"):
             where = landing.path + (("?" + landing.query) if landing.query else "")
-            if self.account.get("cookie_source") == "manual":
-                raise VPError(f"Login session expired (redirected to {where}); update the account cookie "
-                              "in ~/.config/vp/config.json. Copy the whole Cookie header, not one name.")
-            raise VPError(f"Login session expired (redirected to {where}). Log in to this site in Firefox, "
-                          "then run the command again.")
+            raise VPError(f"Login session expired (redirected to {where}); update the account cookie "
+                          "in ~/.config/vp/config.json, or run: vp login qoj")
         # Cloudflare's interstitial is only meaningful for textual responses.
         # A PDF or other binary body must not be decoded here: requests happens
         # to tolerate it, but curl_cffi reports such a response with a non-codec
