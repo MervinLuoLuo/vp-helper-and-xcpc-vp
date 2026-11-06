@@ -12,7 +12,7 @@ from .models import VPError
 # ---------------------------------------------------------------------------
 # Transport selection.
 #
-# qoj.ac and codeforces.com sit behind Cloudflare, which fingerprints the TLS
+# qoj.ac sits behind Cloudflare, which fingerprints the TLS
 # handshake.  Plain requests/urllib3 has a non-browser fingerprint and always
 # receives "HTTP 403 / Just a moment..." — no combination of headers, matching
 # User-Agent or replayed cookies changes that (verified empirically).
@@ -67,8 +67,12 @@ class WebSession:
         self.origin = origin.rstrip("/")
         self.account = account
         self._browser_checked = False
+        # A per-run choice (ask_cookie_source) is resolved by cli before a session
+        # exists, so never re-import here; it would silently override manual input.
         self._auto_refresh = (auto_refresh and bool(account.get("handle"))
-                              and urlsplit(self.origin).hostname in ("qoj.ac", "codeforces.com"))
+                              and not account.get("ask_cookie_source")
+                              and account.get("cookie_source") != "manual"
+                              and urlsplit(self.origin).hostname == "qoj.ac")
         if _IMPERSONATE:
             # curl_cffi supplies the browser headers that match the impersonated
             # fingerprint.  Do not override them with the config's user_agent --
@@ -98,7 +102,7 @@ class WebSession:
         if not self._auto_refresh:
             return False
         from .browser_login import refresh_browser_account
-        platform = "qoj" if urlsplit(self.origin).hostname == "qoj.ac" else "gym"
+        platform = "qoj"
         if not refresh_browser_account(platform, self.account, force=force):
             return False
         self.session.cookies.clear()
@@ -119,7 +123,7 @@ class WebSession:
             try:
                 r = self.session.get(url, timeout=(10, 40), **kwargs)
                 if (not refreshed and r.status_code == 200
-                        and urlsplit(r.url).path in ("/login", "/enter")):
+                        and urlsplit(r.url).path.rstrip("/") in ("/login", "/enter")):
                     refreshed = True
                     if self._refresh_browser(force=True):
                         # Only an idempotent GET is repeated after refreshing login.
@@ -145,10 +149,14 @@ class WebSession:
     def check(self, r):
         if r.status_code != 200:
             raise VPError(f"{urlsplit(r.url).hostname} returned HTTP {r.status_code}")
-        if urlsplit(r.url).path in ("/login", "/enter"):
+        landing = urlsplit(r.url)
+        if landing.path.rstrip("/") in ("/login", "/enter"):
+            where = landing.path + (("?" + landing.query) if landing.query else "")
             if self.account.get("cookie_source") == "manual":
-                raise VPError("Login session expired; update the account cookie in ~/.config/vp/config.json.")
-            raise VPError("Login session expired. Log in to this site in Firefox, then run the command again.")
+                raise VPError(f"Login session expired (redirected to {where}); update the account cookie "
+                              "in ~/.config/vp/config.json. Copy the whole Cookie header, not one name.")
+            raise VPError(f"Login session expired (redirected to {where}). Log in to this site in Firefox, "
+                          "then run the command again.")
         # Cloudflare's interstitial is only meaningful for textual responses.
         # A PDF or other binary body must not be decoded here: requests happens
         # to tolerate it, but curl_cffi reports such a response with a non-codec

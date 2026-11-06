@@ -103,25 +103,3 @@ def qoj_id_from_list(html: str, previous: set[str], base_url: str, problem_id: s
             if match and match[1] not in previous:
                 candidates.add(match[1])
     return next(iter(candidates)) if len(candidates) == 1 else None
-
-
-def cf_submission_ids(html: str) -> set[str]:
-    soup = BeautifulSoup(html, "html.parser")
-    return {row["data-submission-id"] for row in soup.select("tr[data-submission-id]")}
-
-
-def cf_submission_id(soup, previous: set[str], contest: str, problem: str, handle: str) -> str | None:
-    candidates = []
-    for row in soup.select("tr[data-submission-id]"):
-        sid = row["data-submission-id"]
-        if sid in previous or not re.fullmatch(r"[0-9]+", sid):
-            continue
-        paths = [urlsplit(a.get("href", "")).path.rstrip("/") for a in row.select("a[href]")]
-        matching_problem = any(p in (f"/contest/{contest}/problem/{problem.upper()}",
-                                     f"/gym/{contest}/problem/{problem.upper()}") for p in paths)
-        matching_user = any(p.lower() == "/profile/" + handle.lower() for p in paths)
-        if matching_problem and matching_user:
-            candidates.append(sid)
-    # If another client also submitted, await the authoritative API instead of
-    # assigning either server receipt to this request arbitrarily.
-    return candidates[0] if len(candidates) == 1 else None

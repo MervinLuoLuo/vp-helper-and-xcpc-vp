@@ -37,6 +37,11 @@ class QOJ:
         self._next_replay_attempt = 0.0
         self._public_web = None
 
+    @staticmethod
+    def account_attribute_hint() -> str:
+        from .storage import config_directory
+        return str(config_directory() / "config.json")
+
     def _page(self, suffix: str = "", **params) -> BeautifulSoup:
         return self.web.soup(self.url + suffix, params={"locale": "en", **params})
 
@@ -45,6 +50,9 @@ class QOJ:
         titles = [h.get_text(" ", strip=True) for h in soup.select("h1")]
         titles.extend(a.get_text(" ", strip=True) for a in soup.select('a[href*="?v="]'))
         name = directory_name(titles)
+        # The generated name drops the Chinese series words a provincial SRK file
+        # abbreviates; keep the platform title so its ordinal stays auditable.
+        original_title = next((title for title in titles if re.search(r"第[一二三四五六七八九十百零〇\d]+届", title)), "")
         problem_map = {}
         for row in soup.select("tr"):
             a = row.select_one(f'a[href*="/contest/{self.id}/problem/"]')
@@ -96,7 +104,8 @@ class QOJ:
         return Contest("qoj", self.id, self.url, name, name, problem_map,
                        Rules(duration, int(penalty[1]) if penalty else 20,
                              freeze_at=seconds(freeze[1]) if freeze else None,
-                             problem_reveal_count=ccpc_reveal_count(name)), pdfs)
+                             problem_reveal_count=ccpc_reveal_count(name)),
+                       pdfs, extra={"original_title": original_title} if original_title else {})
 
     @staticmethod
     def _registry_duration(soup) -> int | None:
@@ -140,8 +149,17 @@ class QOJ:
     def start(self, contest: Contest) -> float:
         soup = self._page()
         nav = soup.select_one("ul.nav-pills")
-        if not nav or not any(urlsplit(a.get("href", "")).path == f"/user/profile/{self.handle}" for a in nav.select("a")):
-            raise VPError("The QOJ login cookie does not belong to the configured handle.")
+        logged_in = {urlsplit(a.get("href", "")).path[len("/user/profile/"):].rstrip("/")
+                     for node in soup.select("ul.nav-pills, .navbar, nav, header")
+                     for a in node.select('a[href*="/user/profile/"]')}
+        if not logged_in:
+            # QOJ answers an unauthenticated request with the public home page
+            # (HTTP 200), so "not redirected to /login" is not proof of a session.
+            raise VPError("The QOJ login cookie is not accepted: no signed-in account was found. "
+                          f"Run 'vp login qoj' to verify the cookie in {self.account_attribute_hint()}.")
+        if self.handle not in logged_in:
+            raise VPError(f"The QOJ login cookie belongs to {', '.join(sorted(logged_in))}, "
+                          f"not the configured handle {self.handle!r}. " + self.account_attribute_hint())
         current = self._registration(duration=contest.rules.duration)
         if current and time.time() < current[0] + current[1]:
             self.start_time = current[0]
@@ -411,7 +429,11 @@ class QOJ:
         try:
             classify(rows, contest)
         except VPError as exc:
-            return Reference(message=str(exc), released=released)
+            # A contest absent from every public archive still has QOJ's own
+            # imported classification. Its final totals are self-consistent, so
+            # serve them without the archive-only starring correction.
+            if contest.extra.get("original_eligibility"):
+                return Reference(message=str(exc), released=released)
         return Reference(rows, complete=True, statistics_complete=True, released=released)
 
     def reference(self, contest: Contest, elapsed: float) -> Reference:
@@ -511,7 +533,7 @@ class QOJ:
         try:
             metadata = load_metadata(contest, web=public_web)
         except VPError as exc:
-            return Reference(message=str(exc), released=released)
+            return self._qoj_only_reference(html, contest, elapsed, released, str(exc))
         contest.extra["original_eligibility"] = metadata
         duration = metadata.get("duration")
         if not isinstance(duration, int) or duration < contest.rules.duration:
@@ -561,3 +583,19 @@ class QOJ:
         if self._replay is not None:
             return self._replay.at(contest, elapsed, released=released)
         return Reference(released=released, message=self._replay_error)
+
+    def _qoj_only_reference(self, html: str, contest: Contest, elapsed: float, released: bool,
+                            archive_error: str) -> Reference:
+        """Serve QOJ's imported board when no public archive describes the contest.
+
+        Provincial contests are published under provincial-contest paths that
+        older archives lack. QOJ still imports their whole scoreboard, so the
+        final totals can drive a rank comparison without an archive timeline.
+        """
+        final = self.reference_from_html(html, contest, elapsed, released=True)
+        if not final.complete:
+            return Reference(message=archive_error, released=released)
+        result = Reference(final.rows, complete=True, statistics_complete=True, released=released,
+                           message="Original timeline unavailable (" + archive_error + "); "
+                                   "ranks use the final QOJ board.")
+        return result

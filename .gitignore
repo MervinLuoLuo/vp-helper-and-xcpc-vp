@@ -9,6 +9,9 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+# The merged front end ships its build so vp needs no Node toolchain.
+!web/dist/
+web/node_modules/
 vp_helper/data/
 .cache/
 *.receipts/

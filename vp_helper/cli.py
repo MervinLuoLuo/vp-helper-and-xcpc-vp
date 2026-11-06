@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timezone
-import getpass
+import io
 import math
 import os
 from pathlib import Path
@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 
 from rich.console import Console
 from rich.table import Table
@@ -30,40 +31,296 @@ console = Console()
 
 
 def adapter(url: str, config: dict):
-    platform, _, canonical = contest_url(url)
-    if platform == "qoj":
-        from .qoj import QOJ
-        return QOJ(canonical, config.get("qoj", {}))
-    from .gym import Gym
-    return Gym(canonical, config.get(platform, config.get("gym", {})))
+    from .qoj import QOJ
+    _, _, canonical = contest_url(url)
+    return QOJ(canonical, config.get("qoj", {}))
+
+
+SOURCE_NAMES = {"firefox": "Firefox profile", "manual": "manually entered cookie"}
+
+# Cookies QOJ sets on path "/" for qoj.ac, in the order the login wizard asks for
+# them.  Only the session cookie is required; the rest are kept because the
+# judge may reject a request that lacks them (cf_clearance gates Cloudflare).
+COOKIE_FIELDS = {
+    "qoj": (
+        ("__Host-UOJREMEMBER", "remember-me token", False),
+        ("__Host-UOJSESSID", "login session", True),
+        ("cf_clearance", "Cloudflare clearance", False),
+        ("uoj_preferred_language", "language preference", False),
+    ),
+}
+
+
+def terminal_handle():
+    """One open handle on the user's terminal, or None when there is none.
+
+    Every prompt reads *and* writes this handle, so a pipe on stdin or a
+    redirected stdout can never split a question from its answer.  /dev/tty is
+    tried first; stdio is used when stdin is already a terminal (including the
+    tmux pane and `script` wrappers).
+    """
+    try:
+        handle = open("/dev/tty", "r+", buffering=1, encoding="utf8", errors="replace")
+        return handle, True
+    except OSError:
+        pass
+    if sys.stdin.isatty():
+        return None, True
+    return None, False
+
+
+def can_prompt() -> bool:
+    return terminal_handle()[1]
+
+
+def _tty_errors() -> tuple:
+    """Exceptions a terminal read may raise; termios.error is NOT an OSError."""
+    try:
+        import termios
+        return (EOFError, OSError, ValueError, io.UnsupportedOperation, termios.error)
+    except ImportError:  # pragma: no cover - non-POSIX
+        return (EOFError, OSError, ValueError, io.UnsupportedOperation)
+
+
+def _read_secret_line(target) -> str:
+    """Read one line without echo from `target` (a terminal handle or sys.stdin).
+
+    Two details matter on real terminals (tmux, screen, some emulators):
+    * TCSADRAIN waits until the terminal has transmitted pending output; on a
+      full pty buffer that can stall, so the mode change uses TCSANOW.
+    * Type-ahead still sitting in the kernel queue is flushed, otherwise a
+      half-typed line would be consumed as the cookie or leak into the shell.
+    """
+    fd = target.fileno()
+    if not os.isatty(fd):
+        raise OSError("not a terminal")
+    import termios
+    saved = termios.tcgetattr(fd)
+    changed = termios.tcgetattr(fd)
+    changed[3] &= ~termios.ECHO
+    # Only discard stale type-ahead when nothing is waiting: flushing a queued
+    # line (pasting, scripted answers, tmux send-keys) would eat the real answer.
+    import select
+    if not select.select([fd], [], [], 0)[0]:
+        termios.tcflush(fd, termios.TCIFLUSH)
+    termios.tcsetattr(fd, termios.TCSANOW, changed)
+    try:
+        line = target.readline()
+    finally:
+        termios.tcsetattr(fd, termios.TCSANOW, saved)
+    return line.rstrip("\n")
+
+
+def ask(prompt: str, *, secret: bool = False, handle=None) -> str:
+    """Prompt and read on the same channel; empty string on EOF.
+
+    The prompt goes to the terminal *and* stderr: when a wrapper redirects one
+    of them, the user still sees what is being asked instead of a silent wait.
+    """
+    target = handle if handle is not None else sys.stdin
+    errors = _tty_errors()
+    written = False
+    if handle is not None:
+        try:
+            handle.write(prompt)
+            handle.flush()
+            written = True
+        except errors + (AttributeError,):
+            pass
+    if not written:
+        for stream in (sys.stderr, sys.stdout):
+            try:
+                stream.write(prompt)
+                stream.flush()
+                break
+            except errors + (AttributeError,):
+                continue
+    try:
+        if secret and target.isatty():
+            return _read_secret_line(target).strip()
+        if target is sys.stdin:
+            return input().strip()
+        return target.readline().strip()
+    except errors:
+        if not secret:
+            return ""
+        # Echo control failed (tmux edge cases, odd ptys): still read the line
+        # rather than leaving the user at an unresponsive prompt.
+        try:
+            line = target.readline()
+        except errors:
+            return ""
+        if not line:
+            return ""
+        for stream in (sys.stderr, sys.stdout):
+            try:
+                stream.write("\n(cookie is shown because hidden input is unavailable)\n")
+                stream.flush()
+                break
+            except errors + (AttributeError,):
+                pass
+        return line.strip()
+
+
+def _say(lines, handle) -> None:
+    """Print through the terminal handle so redirected stdout keeps the dialog."""
+    if handle is None:
+        for line in lines:
+            console.print(line, markup=False)
+        return
+    handle.write("\n".join(lines) + "\n")
+    handle.flush()
+
+
+def choose_source(site: str, current: str, handle) -> str:
+    """Let the user pick how this run authenticates; Enter keeps the stored choice."""
+    default = current if current in SOURCE_NAMES else "firefox"
+    firefox = SOURCE_NAMES["firefox"] + (" (default)" if default == "firefox" else "")
+    manual = SOURCE_NAMES["manual"] + (" (default)" if default == "manual" else "")
+    _say([f"How should {site} log in?",
+          f"  [1] {firefox} — read-only import from the browser",
+          f"  [2] {manual} — prompt for the Cookie header value"], handle)
+    while True:
+        answer = ask(f"Choice [{'12'[default == 'manual']}] (1/2, Enter keeps {default}): ",
+                     handle=handle).strip()
+        if not answer:
+            return default
+        if answer.lower() in ("1", "firefox", "ff"):
+            return "firefox"
+        if answer.lower() in ("2", "manual"):
+            return "manual"
+        _say(["Please answer 1 or 2."], handle)
+
+
+def login_name(platform: str) -> str:
+    return "qoj"
+
+
+def _cookie_names(cookie: str) -> set:
+    return {part.split("=", 1)[0].strip() for part in cookie.split(";") if "=" in part}
+
+
+def cookie_wizard(platform: str, account: dict, handle) -> str:
+    """Ask for each platform cookie in a fixed order and build the header value.
+
+    One prompt per cookie is far more forgiving than one long paste: a missed
+    semicolon or a stray ``Path=/`` no longer silently drops the session.  Enter
+    on an existing value keeps it, and the required cookie cannot be skipped.
+    """
+    fields = COOKIE_FIELDS.get(platform, ())
+    current = account.get("cookie", "")
+    existing = {}
+    for part in current.split(";"):
+        if "=" in part:
+            name, _, value = part.partition("=")
+            existing[name.strip()] = value.strip()
+    site = "QOJ"
+    _say([f"Enter the {site} cookies from devtools (Network -> request -> Request Headers -> Cookie).",
+          "Paste only the value after '=', never the name or a 'Path=/'-style attribute."], handle)
+    values = {}
+    for index, (name, purpose, required) in enumerate(fields, start=1):
+        stored = existing.get(name, "")
+        marker = "required" if required else ("Enter keeps it" if stored else "optional, Enter skips")
+        _say([f"[{index}/{len(fields)}] {name} ({purpose}) — {marker}"], handle)
+        while True:
+            value = ask(f"{name}: ", secret=False, handle=handle).strip()
+            # A pasted "name=value" pair is accepted, the name is stripped.
+            if value.startswith(name + "="):
+                value = value[len(name) + 1:].strip()
+            value = value.strip(";").strip()
+            if value:
+                values[name] = value
+                break
+            if stored:
+                values[name] = stored
+                break
+            if not required:
+                break
+            _say([f"{name} is required for {site}; paste its value."], handle)
+    # Keep anything extra the browser sent (uoj_csrf and friends) that we did not ask for.
+    wanted = {name for name, _, _ in fields}
+    for name, value in existing.items():
+        if name not in wanted and name not in values and value:
+            values[name] = value
+    return "; ".join(f"{name}={value}" for name, value in values.items())
+
+
+def prompt_cookie(site: str, platform: str, account: dict, handle) -> str:
+    return cookie_wizard(platform, account, handle)
 
 
 def load_account(platform: str) -> dict:
     path = config_directory() / "config.json"
     config = read_json(path)
-    key = "gym" if platform == "cf" and "cf" not in config else platform
-    account = config.setdefault(key, {})
-    before = dict(account)
-    refresh_browser_account(platform, account)
-    if account != before:
-        write_json(path, config)
-    if not account.get("cookie") and account.get("cookie_source") != "manual":
-        site = "QOJ" if platform == "qoj" else "Codeforces"
-        raise VPError(f"No matching Firefox login was found for {site}. "
-                      "Log in to the site in Firefox, then run the same vp command again.")
-    required = ("handle", "cookie") if platform == "qoj" else ("handle", "cookie", "api_key", "api_secret")
-    missing = [key for key in required if not account.get(key)]
-    if missing and not sys.stdin.isatty():
-        raise VPError(f"Missing {platform} account fields {', '.join(missing)} in {path}")
-    if missing:
-        console.print(f"First use: configure the existing {platform} login session.", markup=False)
-        labels = {"handle": "Account handle", "cookie": "Browser login Cookie (copy the Cookie value only)", "api_key": "Codeforces API key", "api_secret": "Codeforces API secret"}
-        for key in missing:
-            value = input(labels[key] + ": ").strip() if key == "handle" else getpass.getpass(labels[key] + ": ").strip()
-            if not value:
-                raise VPError("An account field was empty; no native VP was started.")
-            account[key] = value
-        write_json(path, config)
+    account = config.setdefault(platform, {})
+    site = "QOJ"
+    # Never let an imported or stale cookie satisfy a manual choice silently.
+    manual_wanted = account.get("cookie_source") == "manual"
+    picked_manual = False
+    handle, interactive = terminal_handle()
+    try:
+        # Per-run choice: ask only when enabled; Enter keeps the stored default.
+        if account.get("ask_cookie_source"):
+            if not interactive:
+                raise VPError(f"{path} asks for a cookie source on every run, but no terminal is "
+                              "available to prompt on. Unset ask_cookie_source for unattended use.")
+            previous = account.get("cookie_source")
+            source = choose_source(site, previous, handle)
+            picked_manual = source == "manual" and previous != "manual"
+            if picked_manual:
+                account.pop("cookie", None)  # an explicit pick always asks for a new cookie
+            account["cookie_source"] = source
+            manual_wanted = source == "manual"
+
+        before = dict(account)
+        if not manual_wanted:
+            refresh_browser_account(platform, account)
+            if account != before:
+                write_json(path, config)
+        elif interactive and (picked_manual or not account.get("cookie")):
+            # An explicit "2" re-enters the cookies; an empty cookie falls through
+            # to the login hint below instead of prompting mid-startup.
+            stored = account.get("cookie", "")
+            if picked_manual or stored:
+                value = prompt_cookie(site, platform, account, handle)
+                if value:
+                    account["cookie"] = value
+                    write_json(path, config)
+                elif picked_manual and not stored:
+                    raise VPError(f"No {site} cookie was entered; no native VP was started.")
+                elif stored:
+                    _say(["Keeping the stored cookie."], handle)
+        if not account.get("cookie"):
+            if account.get("cookie_source") == "manual":
+                raise VPError(f"No {site} cookie is configured. Run: vp login {login_name(platform)}")
+            raise VPError(f"No matching Firefox login was found for {site}. "
+                          "Log in to the site in Firefox, then run the same vp command again.")
+        required = ("handle", "cookie")
+        missing = [field for field in required if not account.get(field)]
+        if missing and not interactive:
+            raise VPError(f"Missing {platform} account fields {', '.join(missing)} in {path}")
+        missing = [field for field in missing if field != "cookie"]
+        if missing:
+            _say([f"First use: configure the existing {platform} login session."], handle)
+            labels = {"handle": "Account handle",
+                      "cookie": "Browser login Cookie (copy the Cookie value only)"}
+            for field in missing:
+                # Cookie and handle are both plain text: a hidden paste cannot be
+                # checked, and these values are not passwords.  Only the CF API
+                # secret stays hidden.
+                value = ask(labels[field] + ": ", handle=handle)
+                if not value:
+                    raise VPError("An account field was empty; no native VP was started.")
+                account[field] = value
+            write_json(path, config)
+        if not account.get("cookie"):
+            if account.get("cookie_source") == "manual":
+                raise VPError(f"No {site} cookie is configured. Run: vp login {login_name(platform)}")
+            raise VPError(f"No matching Firefox login was found for {site}. "
+                          "Log in to the site in Firefox, then run the same vp command again.")
+    finally:
+        if handle is not None:
+            handle.close()
     return config
 
 
@@ -92,32 +349,14 @@ def configure_submit(api, contest: Contest, directory: Path) -> None:
     bundled = bool(script and Path(script).is_symlink() and Path(os.readlink(script)) == selected)
     if not script or not Path(script).is_file() or not os.access(script, os.X_OK):
         raise VPError("The existing submit script is not installed; configure its path in ~/.config/vp/config.json.")
-    if contest.platform == "qoj":
-        ids = [int(value) for value in contest.problems.values()]
-        if not bundled and ids != list(range(ids[0], ids[0] + len(ids))):
-            raise VPError("This QOJ contest has nonconsecutive problem IDs. Use the installed submit script with problem_ids support.")
-        write_json(directory / "contest.json", {**api.submit_configuration(contest), **browser_fields(api.account)})
-    elif bundled:
-        write_json(directory / "contest.json", {"name": contest.name, "platform": "gym",
-                   "contest_id": int(contest.contest_id), "handle": api.handle,
-                   "cookie": api.account["cookie"],
-                   "user_agent": api.web.session.headers["User-Agent"], **browser_fields(api.account)})
-    else:
-        # ehnryx/cf_submit reads a plain contestid beside cf.py, not JSON.
-        location = Path(api.account.get("cf_submit_directory") or Path(script).resolve().parent)
-        if (location / "cf.py").is_file() or (location / "cf_login.py").is_file():
-            (location / "contestid").write_text(contest.contest_id, encoding="utf8")
-        elif api.account.get("submit_config_format") == "contest.json":
-            write_json(directory / "contest.json", {"name": contest.name, "platform": "gym",
-                        "base_url": contest.url, "contest_id": int(contest.contest_id),
-                        "problems": "".join(contest.problems), "cookie": api.account["cookie"],
-                        "user_agent": api.web.session.headers["User-Agent"], **browser_fields(api.account)})
-        else:
-            raise VPError("The Gym submit script's configuration format must be connected before a native VP is started.")
+    ids = [int(value) for value in contest.problems.values()]
+    if not bundled and ids != list(range(ids[0], ids[0] + len(ids))):
+        raise VPError("This QOJ contest has nonconsecutive problem IDs. Use the installed submit script with problem_ids support.")
+    write_json(directory / "contest.json", {**api.submit_configuration(contest), **browser_fields(api.account)})
     if bundled:
-        tool = Path("/opt/vp-helper/current/third_party") / ("qoj" if contest.platform == "qoj" else "cf_submit") / "submit"
+        tool = Path("/opt/vp-helper/current/third_party") / "qoj" / "submit"
         if not tool.is_file() or not os.access(tool, os.X_OK):
-            raise VPError(f"The bundled {contest.platform} submit script is missing; reinstall vp.")
+            raise VPError("The bundled QOJ submit script is missing; reinstall vp.")
         temporary = selected.with_name("submit.new")
         temporary.unlink(missing_ok=True)
         temporary.symlink_to(tool)
@@ -165,7 +404,34 @@ def launch(state_path: Path, state: dict) -> None:
     except subprocess.CalledProcessError:
         # Preserve the monitor/session if only the shell pane failed to start.
         raise VPError(f"VP monitoring started in tmux session {name}; the shell pane failed to start.") from None
-    attach(name)
+
+
+def verify_login(platform: str, api) -> None:
+    """Fail fast on a rejected cookie before downloading statements or states.
+
+    QOJ answers unauthenticated requests with the public home page, so a missing
+    session only surfaces later as a confusing "not offered / does not belong"
+    error.  Reused by `vp login` so both report the same thing.
+    """
+    origin = getattr(api, "origin", None) or f"https://{urlsplit(api.url).hostname}"
+    prefix = "/user/profile/" if platform == "qoj" else "/profile/"
+    response = api.web.get(origin + "/")
+    try:
+        html = response.text
+    except Exception:
+        return
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    seen = {urlsplit(a.get("href", "")).path[len(prefix):].rstrip("/")
+            for node in soup.select("ul.nav-pills, .navbar, nav, header, #header")
+            for a in node.select(f'a[href*="{prefix}"]')}
+    if not seen:
+        raise VPError(f"The {platform} cookie is not accepted: {origin} shows no signed-in account. "
+                      f"Run 'vp login {platform}' for details.")
+    handle = getattr(api, "handle", "")
+    if handle and handle not in seen and not (platform != "qoj" and handle.lower() in {h.lower() for h in seen}):
+        raise VPError(f"The cookie belongs to {', '.join(sorted(seen))}, not the configured handle {handle!r}. "
+                      f"Fix ~/.config/vp/config.json or run 'vp login {platform}'.")
 
 
 def prepare_start(url: str) -> tuple[Path, dict]:
@@ -198,6 +464,7 @@ def prepare_start(url: str) -> tuple[Path, dict]:
                 raise VPError(f"A native VP is already running: {old.get('url')}. Open that URL to resume it.")
         config = load_account(platform)
         api = adapter(canonical, config)
+        verify_login(platform, api)
         console.print("Reading contest information…", markup=False)
         contest = api.prepare()
         root = desktop()
@@ -209,6 +476,9 @@ def prepare_start(url: str) -> tuple[Path, dict]:
         for name, pdf in contest.pdfs.items():
             console.print("Downloading " + name, markup=False)
             api.web.pdf(pdf, directory / name)
+        # Offer the replay before the judge is touched, so the page is already
+        # open when the native VP starts.
+        pending = ask_xcpc_setup(contest)
         console.print("Starting and verifying native virtual participation…", markup=False)
         started = api.start(contest)
         name = "vp-" + platform + "-" + contest.contest_id + "-" + str(int(started))
@@ -219,6 +489,7 @@ def prepare_start(url: str) -> tuple[Path, dict]:
                  "directory": str(directory), "tmux_session": name, "status": "running",
                  "submissions": saved.get("submissions", []), "recent": saved.get("recent", []),
                  "history_path": str(root / "vp_history.csv")}
+        state["xcpc_pending"] = pending
         write_json(path, state)
         bind_submit_context(directory, path, state)
         write_json(state_root / "current.json", {"state_path": str(path)})
@@ -240,7 +511,101 @@ def start(url: str) -> None:
         subprocess.run(["tmux", "set-option", "-t", state["tmux_session"], "mouse", "on"], check=True)
         attach(state["tmux_session"])
     else:
+        # launch() only builds the session here: attaching takes the terminal
+        # over, so anything still to print has to happen before it.
         launch(path, state)
+        deliver_xcpc(path, state)
+        attach(state["tmux_session"])
+
+
+def print_url(url: str) -> None:
+    """Print an address on its own lines so a long URL never breaks mid-token."""
+    console.print("  " + url, markup=False, highlight=False)
+
+
+def ask_xcpc_setup(contest: Contest) -> dict:
+    """Collect the team and serve the page before the native VP is requested.
+
+    The judge has not been touched yet, so a first run has no registration time;
+    the page is anchored on the moment it opens and ``deliver_xcpc`` re-anchors
+    it once the judge reports its own start.
+    """
+    from . import xcpc_bridge
+    if not xcpc_bridge.enabled():
+        return {}
+    handle, interactive = terminal_handle()
+    try:
+        if not interactive:
+            return {}
+        console.print("", markup=False)
+        console.print("Set up the browser replay before the native VP starts.", markup=False)
+        team = ask("Team name (blank to skip the replay): ", handle=handle).strip()
+        if not team:
+            console.print("xcpc-vp: skipped; the terminal panel works on its own.", markup=False)
+            return {}
+        organization = ask("School / organization: ", handle=handle).strip()
+        try:
+            url, key = xcpc_bridge.prepare(contest, team, organization, time.time())
+        except VPError as exc:
+            console.print("xcpc-vp: " + str(exc), markup=False)
+            return {}
+        console.print("", markup=False)
+        console.print("Open this address in your browser:", markup=False)
+        print_url(url)
+        console.print("Contest: " + (key or "not matched; pick it on the page"), markup=False)
+        console.print("", markup=False)
+        answer = ask("Press Enter once the replay is running (n to skip the check): ", handle=handle).strip()
+        checked = answer.lower() not in ("n", "no", "q", "quit")
+        if checked:
+            report_xcpc_status(key)
+        return {"team": team, "organization": organization, "contest": key or "",
+                "checked": checked, "url": url}
+    finally:
+        if handle is not None:
+            handle.close()
+
+
+def deliver_xcpc(path: Path, state: dict) -> None:
+    """Re-anchor the page on the judge's own start and record the account.
+
+    The state file is rewritten because the monitor runs in another process and
+    only mirrors submissions once it can read the team from disk.
+    """
+    pending = state.get("xcpc_pending") or {}
+    if not pending.get("team"):
+        return
+    from . import xcpc_bridge
+    contest = Contest.from_dict(state["contest"])
+    team, organization, key = pending["team"], pending.get("organization", ""), pending.get("contest", "")
+    url, matched = xcpc_bridge.page_url(contest, team, organization, state["start_time"], xcpc_bridge.port())
+    key = matched or key
+    state.update(xcpc_team=team, xcpc_organization=organization, xcpc_contest=key,
+                 xcpc_events=[])
+    write_json(path, state)
+    write_json(state_directory() / "xcpc-vp.json", {
+        "contest": key, "team": team, "organization": organization,
+        "start_time": state["start_time"], "url": state["url"]})
+    console.print("", markup=False)
+    console.print("Native VP started at " + xcpc_bridge._china_time(state["start_time"]) + ".", markup=False)
+    console.print("Reload the replay so its clock matches the judge:", markup=False)
+    print_url(url)
+    console.print("", markup=False)
+
+
+def report_xcpc_status(key: str) -> None:
+    """One readiness line for the page, so a broken replay is visible at once."""
+    from . import webui
+    from .xcpc_bridge import port as xcpc_port
+    number = xcpc_port()
+    page = "page serving" if webui.reachable(number) else f"page NOT reachable on port {number}"
+    try:
+        seen = len(webui.feed(number).get("events") or [])
+        page += f", feed answered ({seen} submissions mirrored)"
+    except Exception:
+        page += ", feed did not answer"
+    console.print("xcpc-vp: " + page, markup=False)
+    if not key:
+        console.print("xcpc-vp: no archive match; choose the contest on the page to see submissions.", markup=False)
 
 
 def poll(api, contest: Contest, elapsed: float, refresh_reference: bool = False):
@@ -361,7 +726,9 @@ def monitor(path: Path) -> None:
                     state.update(contest=contest.to_dict(), submissions=[asdict(x) for x in submissions.values()],
                                  recent=recent, submission_history=records, last_sync_time=time.time(),
                                  status="complete" if finalized or preserve_final else "running")
+                    adopt_xcpc(path, state)
                     write_json(path, state)
+                    publish_xcpc(path, state, contest, submissions)
                     row = {"start_time": datetime.fromtimestamp(state["start_time"], timezone.utc).isoformat(),
                            "contest": contest.name, "url": contest.url, "solved": private.solved,
                            "penalty": private.penalty if private.results_complete else "", "rank": rank if finalized else "", "prize": prize}
@@ -370,21 +737,147 @@ def monitor(path: Path) -> None:
                 time.sleep(0.1)
 
 
+def adopt_xcpc(path: Path, state: dict) -> None:
+    """Take xcpc_* fields another process wrote into this stale in-memory copy.
+
+    The launching process records the team after the monitor has already loaded
+    its own snapshot; without this the monitor's next write would erase it.
+    """
+    if state.get("xcpc_team"):
+        return
+    on_disk = read_json(path)
+    if on_disk.get("xcpc_team"):
+        state.update({key: value for key, value in on_disk.items() if key.startswith("xcpc_")})
+
+
+def publish_xcpc(path: Path, state: dict, contest: Contest, submissions: dict) -> None:
+    """Mirror judge-verified results into the open page.
+
+    A terminal has no BroadcastChannel, so the page polls this file; only final
+    verdicts are written because a pending row would be recorded as a result.
+    The team is read back from disk because it is recorded in the launching
+    process after the monitor already loaded its own copy.
+    """
+    from . import xcpc_bridge
+    if not xcpc_bridge.enabled():
+        return
+    adopt_xcpc(path, state)
+    if not state.get("xcpc_team"):
+        return
+    finals = [item for item in submissions.values()
+              if item.verdict not in ("PENDING", "UNAVAILABLE", "TOO-LATE")]
+    payload = xcpc_bridge.channel_payload(contest, state.get("xcpc_contest") or "",
+                                          finals, state["start_time"])
+    if payload["events"] == state.get("xcpc_events"):
+        return
+    payload["team"], payload["organization"] = state["xcpc_team"], state.get("xcpc_organization", "")
+    payload["startTime"] = state["start_time"]
+    try:
+        xcpc_bridge.write_channel(payload)
+    except OSError:
+        return
+    state["xcpc_events"] = payload["events"]
+
+
+def _probe_login(platform: str, account: dict) -> tuple[str, set]:
+    """Return (landing url, detected handles) for the stored cookie."""
+    from .http import WebSession
+    from bs4 import BeautifulSoup
+    site = "qoj.ac"
+    web = WebSession(f"https://{site}", account, auto_refresh=False)
+    try:
+        response = web.session.get(f"https://{site}/", params={"locale": "en"}, timeout=(10, 30))
+        final = response.url
+        console.print(f"landed:   {final}", markup=False)
+        console.print(f"status:   {response.status_code}", markup=False)
+        landed = urlsplit(final)
+        if landed.path.rstrip("/") in ("/login", "/enter"):
+            raise VPError(f"The cookie was rejected: {site} redirected to {landed.path}.")
+        if "cf-chl-" in response.text[:3000] or "Just a moment..." in response.text:
+            raise VPError("Cloudflare challenge; refresh cf_clearance from the browser.")
+        prefix = "/user/profile/"
+        soup = BeautifulSoup(response.text, "html.parser")
+        found = {urlsplit(a.get("href", "")).path[len(prefix):].rstrip("/")
+                 for header in soup.select("ul.nav-pills, .navbar, nav, header, #header")
+                 for a in header.select("a[href]") if urlsplit(a["href"]).path.startswith(prefix)}
+        return final, found
+    finally:
+        web.session.close()
+
+
+def login_check(platform: str) -> None:
+    """Interactive login: ask for handle and every platform cookie, save, verify.
+
+    The cookie is asked one name at a time (see COOKIE_FIELDS) so a missing
+    semicolon or a stray attribute cannot silently drop the session.  The result
+    is written to the config and immediately checked against the live site.
+    """
+    site = "QOJ"
+    path = config_directory() / "config.json"
+    config = read_json(path)
+    account = config.setdefault(platform, {})
+    handle, interactive = terminal_handle()
+    try:
+        if not interactive:
+            raise VPError("vp login needs an interactive terminal.")
+        existing = account.get("handle", "")
+        prompt = f"Account handle [{existing}]: " if existing else "Account handle: "
+        value = ask(prompt, secret=False, handle=handle).strip()
+        if value:
+            account["handle"] = value
+        elif existing:
+            account["handle"] = existing
+        else:
+            raise VPError("A handle is required; vp cannot tell which account is signed in.")
+        account["cookie_source"] = "manual"
+        cookie = cookie_wizard(platform, account, handle)
+        if not cookie:
+            raise VPError("No cookie was entered.")
+        account["cookie"] = cookie
+        write_json(path, config)
+        _say([f"Saved to {path}"], handle)
+        if handle is not None:
+            # handle is None when stdin already is the terminal; never close it.
+            handle.close()
+            handle = None
+
+        _say(["Verifying against " + site + " …"], None)
+        names = _cookie_names(cookie)
+        console.print("cookies:  " + (", ".join(sorted(names)) or "(none)"), markup=False)
+        _, found = _probe_login(platform, account)
+        console.print(f"account:  {', '.join(sorted(found)) or '(not detected)'}", markup=False)
+        if not found:
+            missing = [name for name, _, required in COOKIE_FIELDS.get(key, ()) if required and name not in names]
+            hint = (" missing required cookie: " + ", ".join(missing)) if missing else ""
+            raise VPError("The cookie was sent but no signed-in account was found." + hint
+                          + f" Re-run 'vp login {login_name(platform)}'.")
+        wanted = account["handle"]
+        if wanted not in found and not (platform != "qoj" and wanted.lower() in {h.lower() for h in found}):
+            raise VPError(f"The cookie belongs to {', '.join(sorted(found))}, not {wanted!r}. "
+                          f"Update the handle or re-run 'vp login {login_name(platform)}'.")
+        console.print("OK: vp is authenticated as " + ", ".join(sorted(found)), markup=False)
+    finally:
+        if handle is not None:
+            handle.close()
+
+
 def main() -> None:
     args = sys.argv[1:]
     try:
         if args == ["history"]:
             history()
+        elif args and args[0] == "login" and len(args) in (1, 2):
+            login_check(args[1] if len(args) == 2 else "qoj")
         elif len(args) == 2 and args[0] == "_monitor":
             monitor(Path(args[1]))
-        elif len(args) == 2 and args[0] in ("cf", "qoj", "gym"):
+        elif len(args) == 2 and args[0] == "qoj":
             start(contest_id_url(*args))
         elif len(args) == 1 and args[0] not in ("-h", "--help"):
             start(args[0])
         elif args in ([], ["-h"], ["--help"]):
-            console.print("Usage: vp cf ID\n       vp qoj ID\n       vp gym ID\n       vp CONTEST_URL\n       vp history", markup=False)
+            console.print("Usage: vp qoj ID\n       vp CONTEST_URL\n       vp history\n       vp login [qoj]", markup=False)
         else:
-            raise VPError("Usage: vp cf ID, vp qoj ID, vp gym ID or vp history")
+            raise VPError("Usage: vp qoj ID, vp CONTEST_URL or vp history")
     except (VPError, OSError, subprocess.CalledProcessError) as exc:
         console.print("vp: " + str(exc), style="red", markup=False)
         raise SystemExit(1) from None

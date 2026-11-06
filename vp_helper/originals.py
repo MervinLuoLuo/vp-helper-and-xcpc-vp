@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 import requests
 
 from .models import Contest, Medals, Reference, Submission, TeamScore, VPError
-from .parsing import timestamp
+from .parsing import provincial_archive, timestamp
 from .scoring import score_submissions, verdict
 from .storage import read_json, write_json
 
@@ -63,6 +63,8 @@ def identity(name: str) -> str:
 
 
 def archive_path(contest: Contest) -> str | None:
+    if (provincial := provincial_archive(contest)) is not None:
+        return provincial
     match = re.fullmatch(r"(20\d\d) (ICPC|CCPC) ([A-Za-z][A-Za-z .-]*) Reg", contest.name)
     if not match:
         return None
@@ -118,6 +120,10 @@ def board_metadata(config: dict, teams: list | dict, contest: Contest, source: s
                 official = not team["unofficial"]
             elif len(group) == 1:
                 official = "official" in group
+            elif "official" not in team.get("group", []):
+                # Provincial archives label out-of-province teams "guest". They
+                # are not official medal candidates, exactly like unofficial ones.
+                official = False
             else:
                 raise ValueError("missing explicit original team eligibility")
             team_name = name(team.get("name", team.get("team_name")))
@@ -141,38 +147,57 @@ def load_metadata(contest: Contest, *, web=None) -> dict:
     cached = contest.extra.get("original_eligibility") or read_json(cache_path("eligibility", contest.url))
     if cached:
         return cached
+    # The SRK archive carries the judge's own timeline and declares its contest
+    # title, so it identifies the right edition without guessing from a path.
+    # XCPCIO remains the fallback for contests SRK does not publish.
+    srk_error = None
+    try:
+        result = _load_srk_metadata(contest, web=web)
+        if result is not None:
+            return result
+    except (requests.RequestException, ValueError, VPError) as exc:
+        srk_error = exc
+    try:
+        return _load_board_metadata(contest, web=web)
+    except (requests.RequestException, ValueError, VPError) as board_error:
+        if srk_error is not None and not isinstance(board_error, VPError):
+            raise VPError("Original eligibility could not be verified from SRK or XCPCIO.") from None
+        if isinstance(board_error, VPError):
+            raise
+        raise VPError("Original team eligibility could not be read from XCPCIO; "
+                      "the official rank remains unavailable.") from None
+
+
+def _load_srk_metadata(contest: Contest, *, web=None) -> dict | None:
+    from . import srk
+    source = srk.source_url(contest)
+    if not source:
+        return None
+    with (nullcontext(web) if web is not None else requests.Session()) as public:
+        data = archive_json(public, source)
+    result = srk.metadata(data, contest, source)
+    write_json(cache_path("srk", source), {"source": source, "ranklist": data})
+    return result
+
+
+def _load_board_metadata(contest: Contest, *, web=None) -> dict:
     path = archive_path(contest)
     if path is None:
-        raise VPError("Original team eligibility is unavailable; starred teams cannot be verified.")
+        raise VPError("The original archive does not address this contest; "
+                      "original team eligibility is unavailable.")
     source = "https://raw.githubusercontent.com/xcpcio/board-data/main/" + path
-    try:
-        # Public archive reads use a separate session, without the OJ's credentials.
-        with (nullcontext(web) if web is not None else requests.Session()) as public:
-            files = []
-            for filename in ("config.json", "team.json"):
-                files.append(archive_json(public, source + "/" + filename))
-            teams = list(files[1].values()) if isinstance(files[1], dict) else files[1]
-            organizations = None
-            if any("organization" not in team and "organization_id" in team for team in teams):
-                if files[0].get("organizations", {}).get("url") != "organizations.json":
-                    raise VPError("The original archive's organization reference is unsupported.")
-                organizations = archive_json(public, source + "/organizations.json")
-        return board_metadata(*files, contest, source, organizations)
-    except (requests.RequestException, ValueError, VPError) as original_error:
-        from . import srk
-        source = srk.source_url(contest)
-        if source:
-            try:
-                with (nullcontext(web) if web is not None else requests.Session()) as public:
-                    data = archive_json(public, source)
-                result = srk.metadata(data, contest, source)
-                write_json(cache_path("srk", source), {"source": source, "ranklist": data})
-                return result
-            except (requests.RequestException, ValueError, VPError):
-                raise VPError("Original eligibility could not be verified from XCPCIO or the SRK archive.") from None
-        if isinstance(original_error, VPError):
-            raise
-        raise VPError("Original team eligibility could not be read from XCPCIO; the official rank remains unavailable.") from None
+    # Public archive reads use a separate session, without the OJ's credentials.
+    with (nullcontext(web) if web is not None else requests.Session()) as public:
+        files = []
+        for filename in ("config.json", "team.json"):
+            files.append(archive_json(public, source + "/" + filename))
+        teams = list(files[1].values()) if isinstance(files[1], dict) else files[1]
+        organizations = None
+        if any("organization" not in team and "organization_id" in team for team in teams):
+            if files[0].get("organizations", {}).get("url") != "organizations.json":
+                raise VPError("The original archive's organization reference is unsupported.")
+            organizations = archive_json(public, source + "/organizations.json")
+    return board_metadata(*files, contest, source, organizations)
 
 
 def eligibility_lookup(teams: list[dict]) -> dict:

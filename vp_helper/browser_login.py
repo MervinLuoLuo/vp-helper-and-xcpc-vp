@@ -151,7 +151,7 @@ def _header(values: dict) -> str:
 
 
 def browser_cookies(platform: str, account: dict) -> list[BrowserCookies]:
-    host = "qoj.ac" if platform == "qoj" else "codeforces.com"
+    host = "qoj.ac"
     candidates = []
     for profile in firefox_profiles(account):
         persistent = {}
@@ -177,7 +177,7 @@ def browser_cookies(platform: str, account: dict) -> list[BrowserCookies]:
 
 def _verify(platform: str, candidate: BrowserCookies, expected: str) -> dict | None:
     from .http import WebSession
-    host = "qoj.ac" if platform == "qoj" else "codeforces.com"
+    host = "qoj.ac"
     origin = "https://" + host
     web = WebSession(origin, {"cookie": candidate.cookie}, auto_refresh=False)
     try:
@@ -186,8 +186,8 @@ def _verify(platform: str, candidate: BrowserCookies, expected: str) -> dict | N
         if urlsplit(response.url).hostname != host:
             return None
         soup = BeautifulSoup(response.text, "html.parser")
-        selector = "ul.nav-pills, .navbar, nav, header, .nav-item.dropdown .dropdown-menu" if platform == "qoj" else "#header"
-        prefix = "/user/profile/" if platform == "qoj" else "/profile/"
+        selector = "ul.nav-pills, .navbar, nav, header, .nav-item.dropdown .dropdown-menu"
+        prefix = "/user/profile/"
         handles = {urlsplit(a.get("href", "")).path[len(prefix):].rstrip("/")
                    for header in soup.select(selector) for a in header.select("a[href]")
                    if urlsplit(a["href"]).path.startswith(prefix)}
@@ -206,11 +206,11 @@ def _verify(platform: str, candidate: BrowserCookies, expected: str) -> dict | N
         web.session.close()
 
 
-def refresh_browser_account(platform: str, account: dict, *, force: bool = False) -> bool:
-    if account.get("cookie_source") == "manual":
+def refresh_browser_account(platform: str, account: dict, *, force: bool = False, source: str | None = None) -> bool:
+    if (source or account.get("cookie_source")) == "manual":
         return False
     for candidate in browser_cookies(platform, account):
-        key = ("qoj" if platform == "qoj" else "cf", str(candidate.profile), account.get("handle", ""),
+        key = ("qoj", str(candidate.profile), account.get("handle", ""),
                hashlib.sha256(candidate.cookie.encode()).digest())
         with _lock:
             cached = _cache.get(key)
@@ -230,7 +230,11 @@ def browser_fields(account: dict) -> dict:
 
 
 def refresh_submission_login(path: Path, config: dict, platform: str) -> None:
+    """Refresh a submission's cookie; ``ask_cookie_source`` is honoured here too."""
     from .storage import write_json
+    source = config.get("cookie_source")
+    if source == "manual" or config.get("ask_cookie_source"):
+        return
     before = dict(config)
-    if refresh_browser_account(platform, config) and config != before:
+    if refresh_browser_account(platform, config, source=source) and config != before:
         write_json(path, config)
