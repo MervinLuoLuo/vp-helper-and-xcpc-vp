@@ -34,21 +34,7 @@ cd vp-helper-qoj-only
 
 ## 使用
 
-将 `ID` 替换为对应平台的数字比赛编号：
-
-```text
-vp qoj ID
-```
-
-例如：
-
-```bash
-vp qoj 3169
-submit A.cpp
-vp history
-```
-
-也支持 `vp CONTEST_URL`（QOJ 或 ucup 比赛链接）。计分范围限定为 ICPC；非 ICPC 赛制的比赛会在开赛前被拒绝。
+### 首次使用
 
 首次使用需要配置账号：
 
@@ -75,6 +61,26 @@ Cookie 过期时，在浏览器里重新登录 QOJ，取出新的 `Cookie` 请�
 未配置 `work_directory` 时 `vp` 会直接报错，不会静默写进某个默认目录。
 
 每场比赛在这个目录下共用一个子文件夹，例如 `2024 ICPC Nanjing Reg`。再次进入保留已有代码和输入数据，更新提交配置与题面；各次 VP 的开始时间和成绩状态独立保存。`submit A.cpp` 在对应比赛目录内运行。
+
+### 进入 VP
+
+将 `<ID>` 替换为对应平台的数字比赛编号：
+
+```text
+vp qoj <ID>
+```
+
+例如：
+
+```bash
+vp qoj 3169
+```
+
+也支持 `vp CONTEST_URL`（QOJ 或 ucup 比赛链接）。计分范围限定为 ICPC；非 ICPC 赛制的比赛会在开赛前被拒绝。
+
+自动下载题面完成后会要求输入 `Team name` 和 `School / organization` ，作为 `xcpc-vp` 前端页面中显示的队伍名与学校(`Team name` 为空时则不启用 `xcpc-vp` 回放)
+
+之后会输出 `xcpc-vp` 的前端页面地址，需要自行在浏览器中打开。同时需要在 qoj 上手动开启 VP，开启完成后回车即可进入 vp TUI。
 
 ## 成绩与界面
 
