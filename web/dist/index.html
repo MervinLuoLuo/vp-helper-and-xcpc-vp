@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=0.5,maximum-scale=1.0,user-scalable=yes" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="darkreader-lock" />
+    <title>RankLand VP</title>
+    <script>
+      (function () {
+        var themeMode = 'auto';
+        try {
+          var storedThemeMode = window.localStorage.getItem('RanklandThemeMode');
+          if (storedThemeMode === 'auto' || storedThemeMode === 'light' || storedThemeMode === 'dark') {
+            themeMode = storedThemeMode;
+          }
+        } catch (e) {}
+        var themeName = themeMode === 'auto'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : themeMode;
+        document.documentElement.className = themeName;
+        document.documentElement.style.colorScheme = themeName;
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-82a0279e.js"></script>
+    <link rel="stylesheet" href="/assets/index-df820339.css">
+  </head>
+  <body>
+    <div id="app"></div>
+    
+  </body>
+</html>

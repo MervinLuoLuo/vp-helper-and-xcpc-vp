@@ -1,0 +1,397 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import type * as srk from '@algoux/standard-ranklist';
+import { formatTimeDuration, getCCPC26ProblemLayout, resolveText } from '@algoux/standard-ranklist-utils';
+import { Modal } from '@algoux/standard-ranklist-renderer-component-vue';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import Loading from '@/components/common/Loading.vue';
+import StyledRanklist from '@/components/ranklist/StyledRanklist.vue';
+import ScrollSolution from './ScrollSolution.vue';
+import type { ScrollSolutionDataItem } from './ScrollSolution.vue';
+import { useRanklandApi } from '@/services/ranklist-api';
+import { formatTitle } from '@/app/title-format';
+import { isManualResult, MANUAL_RESULTS, prepareReplay, type ManualResult, type ManualSubmission } from './replay';
+import { applyVPOptions, buildVPQuery, DEFAULT_VP_OPTIONS, readVPOptions, type VPOptions } from './options';
+import { readVPClock, reanchorVPClock } from './clock';
+import { formatChinaTime, formatChinaTimeLabel } from './china-time';
+import { shouldEnableCCPC26 } from '@/utils/ccpc26.util';
+import { parseSubmissionTime } from './submission-time';
+import { useVPPresence } from './presence';
+
+const route = useRoute();
+const router = useRouter();
+const api = useRanklandApi();
+const options = shallowRef<VPOptions>({ ...DEFAULT_VP_OPTIONS });
+const replay = shallowRef<ReturnType<typeof prepareReplay>>();
+const ranklist = shallowRef<srk.Ranklist>();
+const error = ref('');
+const savingError = ref('');
+const loading = ref(false);
+const elapsed = ref(0);
+const running = ref(false);
+const speed = ref(1);
+const now = ref(Date.now());
+const ownName = ref('');
+const ownNameInput = ref('');
+const ownOrganization = ref('');
+const ownOrganizationInput = ref('');
+const manual = ref<ManualSubmission[]>([]);
+const problem = ref(0);
+const result = ref<ManualResult>('AC');
+const submissionHour = ref('0');
+const submissionMinute = ref('0');
+const customSubmissionTime = ref(false);
+const joinOpen = ref(false);
+const resetOpen = ref(false);
+const scrollSolution = ref<InstanceType<typeof ScrollSolution>>();
+const feedKey = ref(0);
+const clientWidth = ref(window.innerWidth);
+const clientHeight = ref(window.innerHeight);
+const key = computed(() => typeof route.query.contest === 'string' ? route.query.contest : '');
+const enabledScrollSolution = computed(() => route.query.feed !== '0' && clientWidth.value >= 768);
+const duration = computed(() => replay.value?.durationMs || 0);
+const ended = computed(() => !!duration.value && elapsed.value >= duration.value);
+const displayedSubmissionHour = computed(() => customSubmissionTime.value ? submissionHour.value : String(Math.floor(elapsed.value / 3_600_000)));
+const displayedSubmissionMinute = computed(() => customSubmissionTime.value ? submissionMinute.value : String(Math.floor(elapsed.value / 60_000) % 60));
+const submissionTimeError = computed(() => {
+  if (!customSubmissionTime.value) return '';
+  try { parseSubmissionTime(submissionHour.value, submissionMinute.value, elapsed.value, duration.value); return ''; }
+  catch (e) { return e instanceof Error ? e.message : '提交时间无效。'; }
+});
+const viewportStyle = computed(() => ({ marginLeft: enabledScrollSolution.value ? '250px' : undefined, width: enabledScrollSolution.value ? 'calc(100% - 250px)' : '100%', minWidth: '0' }));
+const ccpc26Active = computed(() => !!ranklist.value && shouldEnableCCPC26(ranklist.value, { isLive: true, timeTravelTime: elapsed.value, now: now.value }));
+const revealedProblems = computed(() => ccpc26Active.value && ranklist.value ? new Set(getCCPC26ProblemLayout(ranklist.value)?.revealedProblemIndexes || []) : null);
+const scheduledAtMs = computed(() => options.value.scheduledAt ? Date.parse(options.value.scheduledAt) : NaN);
+const waitingForSchedule = computed(() => options.value.autoplay && Number.isFinite(scheduledAtMs.value) && now.value < scheduledAtMs.value);
+useVPPresence(computed(() => !!ranklist.value && running.value && !ended.value && !waitingForSchedule.value), key);
+const scheduledLabel = computed(() => Number.isFinite(scheduledAtMs.value) ? `${formatChinaTimeLabel(scheduledAtMs.value)}（北京时间）` : '');
+// Only submissions are stored. Each actual start has its own records; clocks always come from the URL.
+const storageKey = computed(() => `RanklandVP:submissions:${key.value}:${new Date(scheduledAtMs.value).toISOString()}:${options.value.rule}:${options.value.revealCount}:${options.value.revealRatio}`);
+let cursor = 0;
+let generation = 0;
+
+function saveSubmissions() {
+  if (!replay.value) return;
+  try {
+    localStorage.setItem(storageKey.value, JSON.stringify(manual.value));
+    savingError.value = '';
+  } catch { savingError.value = '浏览器无法保存手动提交，关闭页面前请注意记录提交结果。'; }
+}
+function restoreSubmissions() {
+  const stored = localStorage.getItem(storageKey.value);
+  if (!stored) return;
+  const submissions = JSON.parse(stored);
+  if (!Array.isArray(submissions) || submissions.length > 10000) throw new Error('保存的提交记录格式无效。');
+  for (const submission of submissions) {
+    if (!submission ||
+        !Number.isInteger(submission.problemIndex) || submission.problemIndex < 0 || submission.problemIndex >= replay.value.source.problems.length ||
+        !isManualResult(submission.result) || typeof submission.timeMs !== 'number' || !Number.isFinite(submission.timeMs) ||
+        submission.timeMs < 0 || submission.timeMs > duration.value) throw new Error('保存的提交记录格式无效。');
+  }
+  manual.value = submissions;
+}
+async function syncOptions(next: VPOptions) {
+  options.value = next;
+  speed.value = next.speed;
+  tick();
+  try {
+    await router.replace({ query: {
+      ...route.query, run: undefined, anchor: undefined, team: undefined, organization: undefined,
+      count: undefined, ratio: undefined, ...buildVPQuery(key.value, next),
+    } });
+  } catch { savingError.value = '无法更新比赛链接，请保留当前页面。'; }
+}
+function solutionTime(index: number) {
+  const solution = replay.value?.solutions[index];
+  return solution?.[3] ? formatTimeDuration(solution[3], 'ms') : Infinity;
+}
+function redraw(pushEvents = true) {
+  if (!replay.value) return;
+  const previous = cursor;
+  while (cursor < replay.value.solutions.length && solutionTime(cursor) <= elapsed.value) cursor++;
+  ranklist.value = replay.value.snapshotAt(elapsed.value, manual.value, ownName.value, ownOrganization.value);
+  if (!pushEvents || !enabledScrollSolution.value || cursor <= previous) return;
+  const rowsById = new Map(ranklist.value.rows.map(row => [row.user.id, row]));
+  const messages: ScrollSolutionDataItem[] = replay.value.solutions.slice(Math.max(previous, cursor - 40), cursor).map(solution => {
+    const row = rowsById.get(solution[0]);
+    return {
+      problem: { alias: revealedProblems.value && !revealedProblems.value.has(solution[1]) ? '?' : ranklist.value.problems[solution[1]].alias || String(solution[1] + 1) },
+      score: { value: row?.score.value || 0 },
+      result: (!ended.value && formatTimeDuration(solution[3], 'ms') >= replay.value.frozenAtMs
+        ? '?'
+        : revealedProblems.value && !revealedProblems.value.has(solution[1]) && solution[2] === 'FB' ? 'AC' : solution[2]) as ScrollSolutionDataItem['result'],
+      user: { name: row?.user.name || solution[0], organization: row?.user.organization },
+    };
+  });
+  scrollSolution.value?.pushSolutions(messages);
+}
+function tick() {
+  now.value = Date.now();
+  if (!replay.value) return;
+  const clock = readVPClock(options.value, duration.value, now.value);
+  const previousElapsed = elapsed.value;
+  elapsed.value = clock.elapsed;
+  running.value = clock.running;
+  if (previousElapsed !== elapsed.value && (solutionTime(cursor) <= elapsed.value || ended.value)) redraw();
+}
+async function toggleRunning() {
+  tick();
+  if (ended.value || waitingForSchedule.value) return;
+  const next = !options.value.autoplay && !options.value.anchorAt
+    ? { ...options.value, scheduledAt: formatChinaTime(now.value), autoplay: true }
+    : reanchorVPClock(options.value, elapsed.value, now.value, { autoplay: !running.value });
+  await syncOptions(next);
+  tick();
+}
+async function setSpeed(event: Event) {
+  tick();
+  const nextSpeed = Number((event.target as HTMLSelectElement).value);
+  if (![1, 2, 5, 10, 30, 60].includes(nextSpeed)) return;
+  const next = waitingForSchedule.value || (!options.value.autoplay && !options.value.anchorAt) ? { ...options.value, speed: nextSpeed }
+    : reanchorVPClock(options.value, elapsed.value, now.value, { speed: nextSpeed });
+  await syncOptions(next);
+  tick();
+}
+async function reset() {
+  running.value = false; elapsed.value = 0; manual.value = []; ownName.value = ''; ownNameInput.value = ''; cursor = 0;
+  ownOrganization.value = ''; ownOrganizationInput.value = '';
+  customSubmissionTime.value = false;
+  resetOpen.value = false; feedKey.value++;
+  await syncOptions({ ...options.value, scheduledAt: formatChinaTime(Date.now()), anchorAt: '', startMinutes: 0, autoplay: false, team: '', organization: '' });
+  redraw(false);
+}
+function openTeamForm() {
+  ownNameInput.value = ownName.value;
+  ownOrganizationInput.value = ownOrganization.value;
+  joinOpen.value = true;
+}
+async function join() {
+  const name = ownNameInput.value.trim();
+  const organization = ownOrganizationInput.value.trim();
+  if (!name || name.length > 80 || organization.length > 80) return;
+  tick();
+  ownName.value = name; ownOrganization.value = organization; joinOpen.value = false;
+  await syncOptions({ ...options.value, team: name, organization });
+  redraw(false);
+}
+/** Push freshly recorded submissions into the left queue, one row per result. */
+function pushOwnRows(items: ManualSubmission[]) {
+  const queue = scrollSolution.value;
+  const board = ranklist.value;
+  if (!queue || !board) return;
+  queue.pushSolutions(items.map(item => ({
+    problem: {
+      alias: revealedProblems.value && !revealedProblems.value.has(item.problemIndex)
+        ? '?' : board.problems[item.problemIndex].alias || String(item.problemIndex + 1),
+    },
+    score: { value: board.rows.find(row => row.user.id === '__vp_self__')?.score.value || 0 },
+    result: item.result,
+    user: { name: ownName.value, organization: ownOrganization.value || undefined },
+  })));
+}
+function record() {
+  tick();
+  if (!running.value || !ownName.value || ended.value) return;
+  if (submissionTimeError.value) return;
+  const timeMs = customSubmissionTime.value
+    ? parseSubmissionTime(submissionHour.value, submissionMinute.value, elapsed.value, duration.value)
+    : elapsed.value;
+  const own = ranklist.value?.rows.find(row => row.user.id === '__vp_self__');
+  if (['AC', 'FB'].includes(own?.statuses[problem.value]?.result || '')) return;
+  manual.value = [...manual.value, { problemIndex: problem.value, timeMs, result: result.value }];
+  redraw(false); saveSubmissions();
+  pushOwnRows([{ problemIndex: problem.value, timeMs, result: result.value }]);
+}
+/**
+ * Mirror the submissions a running `vp` terminal judged. The terminal writes
+ * the whole list, so only new entries are appended and a repeated poll is inert.
+ */
+let mirrorSeen = new Set<string>();
+let mirrorPoll = 0;
+function appliedKey(item: ManualSubmission) {
+  return `${item.problemIndex}:${item.timeMs}:${item.result}`;
+}
+async function pollMirror() {
+  if (!replay.value) return;
+  try {
+    const response = await fetch('/api/vp-xcpc', { cache: 'no-store' });
+    const shared = await response.json();
+    if (!shared || !Array.isArray(shared.events)) return;
+    if (shared.contest && shared.contest !== key.value) return;
+    // The page may have opened before the judge started the native VP, so its
+    // own clock is only a placeholder. Adopt the judge's start and count from
+    // there, which is what the mirrored submission times are relative to.
+    if (typeof shared.startTime === 'number' && Number.isFinite(shared.startTime)) {
+      const anchored = formatChinaTime(shared.startTime * 1000);
+      if (options.value.scheduledAt !== anchored) {
+        await syncOptions({ ...options.value, scheduledAt: anchored, anchorAt: '',
+                            startMinutes: 0, autoplay: true });
+      }
+    }
+    if (shared.team && !ownName.value) { ownName.value = shared.team; ownOrganization.value = shared.organization || ''; }
+    // Never shadow the outer `duration` computed: the minifier folds the two
+    // names into one, leaving a self-referencing `const` that throws at runtime.
+    const problemCount = replay.value.source.problems.length;
+    const totalMs = duration.value;
+    // Restored submissions already carry results from an earlier visit, so a
+    // reload must not append the same events again.
+    for (const item of manual.value) mirrorSeen.add(appliedKey(item));
+    const added: ManualSubmission[] = [];
+    for (const event of shared.events) {
+      if (!event || !Number.isInteger(event.problemIndex) || event.problemIndex < 0 || event.problemIndex >= problemCount) continue;
+      if (typeof event.timeMs !== 'number' || !Number.isFinite(event.timeMs) || event.timeMs < 0 || event.timeMs > totalMs) continue;
+      if (!isManualResult(event.result)) continue;
+      const item: ManualSubmission = { problemIndex: event.problemIndex, timeMs: event.timeMs, result: event.result };
+      const id = appliedKey(item);
+      if (mirrorSeen.has(id)) continue;
+      mirrorSeen.add(id);
+      added.push(item);
+    }
+    if (!added.length) return;
+    manual.value = [...manual.value, ...added];
+    redraw(false); saveSubmissions();
+    // The queue is chronological, so replay in time order to score each row
+    // the way it stood right after that submission.
+    for (const item of [...added].sort((a, b) => a.timeMs - b.timeMs)) pushOwnRows([item]);
+  } catch { /* no terminal attached */ }
+}
+function editSubmissionTime(field: 'hour' | 'minute', event: Event) {
+  if (!customSubmissionTime.value) {
+    submissionHour.value = displayedSubmissionHour.value;
+    submissionMinute.value = displayedSubmissionMinute.value;
+    customSubmissionTime.value = true;
+  }
+  const value = (event.target as HTMLInputElement).value;
+  if (field === 'hour') submissionHour.value = value;
+  else submissionMinute.value = value;
+}
+async function changeScroll(checked: boolean) {
+  await syncOptions({ ...options.value, feed: checked });
+}
+function resize() { clientWidth.value = window.innerWidth; clientHeight.value = window.innerHeight; }
+
+function backToSetup() {
+  return router.push({ path: '/', query: { ...route.query, selected: key.value, contest: undefined, run: undefined, at: undefined, anchor: undefined, from: undefined, play: undefined, speed: String(speed.value), team: ownName.value || undefined, organization: ownOrganization.value || undefined } });
+}
+
+watch(key, async value => {
+  const request = ++generation;
+  running.value = false; replay.value = undefined; ranklist.value = undefined;
+  loading.value = true; error.value = ''; savingError.value = '';
+  try {
+    if (!api) throw new Error('RankLand API 未初始化。');
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(value)) throw new Error('比赛 ID 格式不正确。');
+    options.value = readVPOptions(route.query);
+    // Give legacy links an explicit real start too; never restore a stored clock.
+    if (!options.value.scheduledAt || route.query.at !== options.value.scheduledAt || (options.value.anchorAt && route.query.anchor !== options.value.anchorAt)) {
+      await syncOptions({ ...options.value, scheduledAt: options.value.scheduledAt || formatChinaTime(Date.now()) });
+      if (request !== generation) return;
+    }
+    const data = await api.getRanklist({ uniqueKey: value });
+    if (request !== generation) return;
+    replay.value = prepareReplay(applyVPOptions(data.srk, options.value));
+    if (options.value.startMinutes * 60000 > duration.value || (!options.value.anchorAt && options.value.startMinutes * 60000 === duration.value)) throw new Error('起始时间必须小于比赛时长。');
+    elapsed.value = options.value.startMinutes * 60000; speed.value = options.value.speed; manual.value = []; ownName.value = options.value.team;
+    ownOrganization.value = options.value.organization;
+    try { restoreSubmissions(); } catch (e) { savingError.value = e instanceof Error ? e.message : '无法恢复手动提交。'; }
+    cursor = 0; feedKey.value++; problem.value = 0; customSubmissionTime.value = false; tick(); redraw(false);
+  } catch (e) { if (request === generation) error.value = e instanceof Error ? e.message : '比赛加载失败，请返回合集重选。'; }
+  finally { if (request === generation) loading.value = false; }
+}, { immediate: true });
+
+watch(() => route.query, query => {
+  if (!replay.value || loading.value) return;
+  try {
+    const next = readVPOptions(query);
+    const newStart = Date.parse(next.scheduledAt) !== Date.parse(options.value.scheduledAt);
+    options.value = next; speed.value = next.speed;
+    ownName.value = next.team; ownOrganization.value = next.organization;
+    if (newStart) {
+      manual.value = [];
+      try { restoreSubmissions(); } catch (e) { savingError.value = e instanceof Error ? e.message : '无法恢复手动提交。'; }
+    }
+    cursor = 0; tick(); redraw(false);
+  } catch (e) { error.value = e instanceof Error ? e.message : '参数格式不正确。'; }
+});
+
+const timer = window.setInterval(tick, 250);
+// Two seconds keeps the board responsive without hammering the local endpoint.
+mirrorPoll = window.setInterval(pollMirror, 2000);
+window.addEventListener('resize', resize);
+document.addEventListener('visibilitychange', tick);
+onBeforeUnmount(() => {
+  generation++; window.clearInterval(timer); window.clearInterval(mirrorPoll);
+  window.removeEventListener('resize', resize);
+  document.removeEventListener('visibilitychange', tick);
+});
+</script>
+
+<template>
+  <section v-if="loading" class="mt-16 text-center"><Loading /></section>
+  <section v-else-if="error" class="mt-16 text-center">
+    <p class="mb-4 text-muted-foreground" role="alert">{{ error }}</p>
+    <Button size="sm" @click="backToSetup">返回选赛配置</Button>
+  </section>
+  <section v-else-if="ranklist" class="vp-board min-w-0" :style="viewportStyle" data-id="vp-ranklist-content">
+    <Head><title>{{ formatTitle(`VP: ${resolveText(ranklist.contest.title)}`) }}</title></Head>
+    <p v-if="savingError" class="mx-4 mb-4 text-sm text-muted-foreground" role="status">{{ savingError }}</p>
+    <div class="mx-4 mb-2 flex flex-wrap items-center justify-center gap-3">
+      <Button size="sm" :disabled="ended || waitingForSchedule" @click="toggleRunning">{{ ended ? '比赛结束' : waitingForSchedule ? '等待预约开始' : running ? '暂停' : elapsed ? '继续虚拟参赛' : '开始虚拟参赛' }}</Button>
+      <label class="inline-flex items-center gap-2 text-sm">倍速
+        <select class="srk-ranklist-org-select !w-auto" :value="speed" aria-label="虚拟参赛倍速" @change="setSpeed">
+          <option v-for="value in [1, 2, 5, 10, 30, 60]" :key="value" :value="value">{{ value }}×</option>
+        </select>
+      </label>
+      <Button size="sm" variant="outline" @click="resetOpen = true">重新开始</Button>
+      <Button size="sm" variant="outline" @click="openTeamForm">{{ ownName ? '修改队伍信息' : '加入我的队伍' }}</Button>
+    </div>
+    <p v-if="waitingForSchedule" class="mx-4 mb-4 text-center text-sm text-primary" role="status">预约开始：{{ scheduledLabel }}</p>
+    <div v-if="ownName" class="mx-4 mb-4 flex flex-wrap items-center justify-center gap-3">
+        <span class="text-sm">{{ ownName }}<span v-if="ownOrganization" class="ml-2 text-muted-foreground">{{ ownOrganization }}</span></span>
+        <select v-model="problem" class="srk-ranklist-org-select !w-auto" aria-label="题目">
+          <option v-for="(item, index) in ranklist.problems" :key="index" :value="index">{{ item.alias || index + 1 }}</option>
+        </select>
+        <select v-model="result" class="srk-ranklist-org-select !w-auto" aria-label="结果"><option v-for="verdict in MANUAL_RESULTS" :key="verdict" :value="verdict">{{ verdict }}</option></select>
+        <span class="inline-flex items-center gap-1.5 text-sm">
+          <span>提交时间</span>
+          <input class="h-8 w-16 rounded-md border border-input bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="提交时间（时）" :aria-invalid="!!submissionTimeError" :aria-describedby="submissionTimeError ? 'submission-time-error' : undefined" type="number" min="0" :max="Math.floor(duration / 3_600_000)" step="1" :value="displayedSubmissionHour" @input="editSubmissionTime('hour', $event)" />
+          <span>时</span>
+          <input class="h-8 w-16 rounded-md border border-input bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="提交时间（分）" :aria-invalid="!!submissionTimeError" :aria-describedby="submissionTimeError ? 'submission-time-error' : undefined" type="number" min="0" max="59" step="1" :value="displayedSubmissionMinute" @input="editSubmissionTime('minute', $event)" />
+          <span>分</span>
+          <Button size="sm" variant="ghost" :disabled="!customSubmissionTime" @click="customSubmissionTime = false">当前时间</Button>
+        </span>
+        <Button size="sm" :disabled="!running || !!submissionTimeError" @click="record">记录提交</Button>
+    </div>
+    <p v-if="submissionTimeError" id="submission-time-error" class="mx-4 mb-2 text-center text-sm text-destructive" role="alert">{{ submissionTimeError }}</p>
+    <StyledRanklist
+      :data="ranklist" :name="key" :id="key" show-filter show-progress is-live fit-problem-columns
+      :enable-time-travel="false" :replay-elapsed-ms="elapsed" :ccpc26-mode="true" table-class="ml-4 min-w-0 max-md:ml-0"
+    >
+      <template #after-ref-links>
+        <p v-if="ccpc26Active" class="srk-ranklist-meta-line text-primary">CCPC 2026 · 动态揭题</p>
+      </template>
+      <template #extra-action>
+        <span v-if="clientWidth >= 768" class="inline-flex items-center gap-2 text-sm">
+          <span>实时滚动提交状态</span>
+          <Switch class="srk-ranklist-switch" :checked="enabledScrollSolution" aria-label="实时滚动提交状态" @update:checked="changeScroll" />
+        </span>
+      </template>
+    </StyledRanklist>
+    <ScrollSolution v-if="enabledScrollSolution" :key="feedKey" ref="scrollSolution" :container-max-height="clientHeight" />
+    <Modal :open="joinOpen" :title="ownName ? '修改队伍信息' : '加入我的队伍'" :width="420" root-class-name="srk-general-modal-root" @close="joinOpen = false" @update:open="joinOpen = $event">
+      <form @submit.prevent="join">
+        <label class="mb-4 flex flex-col gap-2 text-sm"><span>队伍名称</span><Input v-model="ownNameInput" placeholder="队伍名称" aria-label="队伍名称" maxlength="80" required /></label>
+        <label class="flex flex-col gap-2 text-sm"><span>学校 / 单位 <small class="text-muted-foreground">可选</small></span><Input v-model="ownOrganizationInput" placeholder="填写学校或单位" aria-label="学校 / 单位" maxlength="80" /></label>
+        <p class="my-4 text-sm text-muted-foreground">在原 OJ 做题，判题后在此手动记录提交结果，与历史队伍同榜。</p>
+        <Button size="sm" type="submit" :disabled="!ownNameInput.trim()">{{ ownName ? '保存' : '加入' }}</Button>
+      </form>
+    </Modal>
+    <Modal :open="resetOpen" title="重新开始虚拟参赛" :width="420" root-class-name="srk-general-modal-root" @close="resetOpen = false" @update:open="resetOpen = $event">
+      <p class="mb-4">计时归零，并清空这场比赛中手动记录的提交。</p>
+      <div class="flex gap-2"><Button size="sm" @click="reset">确认重新开始</Button><Button size="sm" variant="outline" @click="resetOpen = false">取消</Button></div>
+    </Modal>
+  </section>
+</template>

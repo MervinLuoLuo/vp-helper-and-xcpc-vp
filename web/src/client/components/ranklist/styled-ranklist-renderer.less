@@ -1,0 +1,1085 @@
+.srk-remarks {
+  display: inline-block;
+  border: 1px solid rgb(var(--rankland-primary-rgb) / 80%);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.srk-ranklist-title {
+  margin: 0 0 4px;
+  color: inherit;
+  font-weight: 500;
+  text-align: center;
+}
+
+.srk-ranklist-meta,
+.srk-ranklist-time {
+  color: hsl(var(--muted-foreground));
+  font-size: 14px;
+  line-height: 1.5715;
+  text-align: center;
+}
+
+.srk-ranklist-meta {
+  margin-top: 4px;
+}
+
+.srk-ranklist-meta-item,
+.srk-ranklist-action-menu {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+
+.srk-ranklist-meta-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
+}
+
+.srk-ranklist-meta-divider {
+  display: inline-block;
+  width: 1px;
+  height: 24px;
+  margin: 0 12px;
+  background: hsl(var(--border));
+  vertical-align: middle;
+}
+
+.srk-ranklist-action-menu {
+  cursor: pointer;
+  color: hsl(var(--foreground));
+  outline: none;
+}
+
+.srk-ranklist-action-trigger,
+.srk-ranklist-ref-links-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  outline: none;
+}
+
+.srk-ranklist-action-icon {
+  color: rgb(var(--rankland-primary-rgb));
+}
+
+.srk-ranklist-action-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 4px;
+  padding: 5px 8px;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 6px 16px rgba(0, 0, 0, 0.08), 0 9px 28px 8px rgba(0, 0, 0, 0.05);
+  font-size: 12px;
+  line-height: 1.5715;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.srk-ranklist-action-trigger:hover .srk-ranklist-action-tooltip,
+.srk-ranklist-action-trigger:focus-within .srk-ranklist-action-tooltip {
+  display: block;
+}
+
+.srk-ranklist-meta-line,
+.srk-ranklist-time {
+  margin: 0;
+}
+
+.srk-ranklist-meta-line a {
+  color: rgb(var(--rankland-primary-rgb));
+}
+
+.srk-ranklist-ref-links-more {
+  margin-left: 6px;
+  color: rgb(var(--rankland-primary-rgb));
+}
+
+.srk-ranklist-ref-links-more-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.srk-ranklist-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.srk-ranklist-filter {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px 20px;
+  flex-wrap: wrap;
+}
+
+.srk-ranklist-filter-primary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.srk-ranklist-org-filter,
+.srk-ranklist-official-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  white-space: nowrap;
+}
+
+.srk-ranklist-official-filter {
+  margin-left: 12px;
+}
+
+.srk-ranklist-filter-title {
+  flex: none;
+}
+
+.srk-ranklist-org-select {
+  width: 180px;
+  max-width: 50vw;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.srk-multi-select {
+  position: relative;
+  flex: none;
+}
+
+.srk-multi-select-trigger {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: stretch;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.srk-multi-select-open-button,
+.srk-multi-select-chevron-button,
+.srk-multi-select-clear {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.srk-multi-select-open-button {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  padding: 4px 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.srk-multi-select-trigger-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.srk-multi-select-trigger-text.is-placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.srk-multi-select-chevron {
+  width: 14px;
+  height: 14px;
+  opacity: 0.65;
+}
+
+.srk-multi-select-chevron-button {
+  display: inline-flex;
+  width: 14px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.srk-multi-select-clear {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 999px;
+  padding: 0;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.srk-multi-select-clear:hover,
+.srk-multi-select-clear:focus-visible {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  opacity: 1;
+}
+
+.srk-multi-select-clear svg {
+  width: 12px;
+  height: 12px;
+}
+
+.srk-multi-select-dropdown {
+  z-index: 60;
+  width: 180px;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  animation: none !important;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  padding: 0;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.12);
+}
+
+.srk-multi-select-command {
+  border-radius: 6px;
+}
+
+.srk-multi-select-dropdown [cmdk-input-wrapper] {
+  border-bottom: 0;
+  padding: 8px;
+}
+
+.srk-multi-select-dropdown [cmdk-input-wrapper] svg {
+  display: none;
+}
+
+.srk-multi-select-search {
+  width: 100%;
+  height: auto;
+  margin: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  outline: none;
+}
+
+.srk-multi-select-search:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 2px rgba(var(--rankland-primary-rgb), 0.18);
+}
+
+.srk-multi-select-options {
+  max-height: 212px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.srk-multi-select-options-group {
+  padding: 0;
+}
+
+.srk-multi-select-option {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 5px 12px;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.5715;
+  text-align: left;
+  cursor: pointer;
+}
+
+.srk-multi-select-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.srk-multi-select-option:hover,
+.srk-multi-select-option[data-highlighted] {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.srk-multi-select-option-check {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--primary));
+}
+
+.srk-multi-select-option-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+.srk-multi-select-empty {
+  display: block;
+  padding: 8px 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.srk-ranklist-marker-filter {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.srk-ranklist-marker-filter-item,
+.srk-ranklist-menu button,
+.srk-ranklist-menu a {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 6px 10px;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.srk-ranklist-menu-label {
+  display: block;
+  padding: 6px 10px 4px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.srk-ranklist-marker-filter-item {
+  width: auto;
+  border: 1px solid hsl(var(--border));
+  border-left-width: 0;
+  padding: 4px 16px;
+  line-height: 1.5715;
+}
+
+.srk-ranklist-marker-filter-item:first-child {
+  border-left-width: 1px;
+  border-radius: 6px 0 0 6px;
+}
+
+.srk-ranklist-marker-filter-item:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.srk-ranklist-marker-filter-item[data-state='on'] {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.srk-ranklist-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.srk-ranklist-icon-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.srk-ranklist-icon-button:hover,
+.srk-ranklist-menu button:hover,
+.srk-ranklist-menu a:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.srk-ranklist-settings-action {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+}
+
+.srk-ranklist-settings-action-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 40;
+  top: 50%;
+  right: calc(100% + 8px);
+  transform: translateY(-50%);
+  border: 1px solid hsl(var(--border));
+  border-radius: 4px;
+  padding: 5px 8px;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 6px 16px rgba(0, 0, 0, 0.08), 0 9px 28px 8px rgba(0, 0, 0, 0.05);
+  font-size: 12px;
+  line-height: 1.5715;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.srk-ranklist-settings-action:hover .srk-ranklist-settings-action-tooltip,
+.srk-ranklist-settings-action:focus-within .srk-ranklist-settings-action-tooltip {
+  display: block;
+}
+
+.srk-ranklist-marker-filter-item:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.srk-ranklist-marker-filter-item[data-state='on']:hover {
+  background: color-mix(in srgb, rgb(var(--rankland-primary-rgb)) 82%, white 18%);
+  color: hsl(var(--primary-foreground));
+}
+
+.srk-ranklist-menu {
+  z-index: 30;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  min-width: 0;
+  animation: none !important;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  padding: 4px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+}
+
+.srk-ranklist-switch {
+  width: 28px !important;
+  height: 16px !important;
+  padding: 2px !important;
+  border-width: 0 !important;
+}
+
+.srk-ranklist-switch > span {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.srk-ranklist-switch[data-state='checked'] > span {
+  transform: translateX(12px) !important;
+}
+
+[data-id='ranklist-progress'] {
+  container: ranklist-progress / inline-size;
+}
+
+.srk-ranklist-time-machine-status {
+  position: relative;
+  width: max-content;
+  white-space: nowrap;
+}
+
+.srk-ranklist-ccpc26-switch {
+  position: absolute;
+  left: calc(100% + 16px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.srk-ranklist-table-scroll {
+  max-width: 100%;
+}
+
+// VP keeps every problem column on screen instead of scrolling the table.
+.srk-ranklist-table-scroll.srk-fit-problems {
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+  container: vp-rank-table / inline-size;
+  --vp-number-width: clamp(14px, 3cqw, 40px);
+  --vp-metric-width: clamp(20px, 4.5cqw, 56px);
+  --vp-name-width: clamp(50px, 18cqw, 240px);
+  --vp-table-font-size: clamp(8px, 1.3cqw, 14px);
+
+  .srk-main {
+    width: 100%;
+    min-width: 0;
+    --srk-series-segment-border-width: 3px;
+    --srk-series-segment-content-gap: 2px;
+
+    table {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      table-layout: fixed;
+      font-size: var(--vp-table-font-size);
+
+      *, :before, :after {
+        box-sizing: border-box;
+      }
+
+      thead > tr > th,
+      tbody > tr > td,
+      tfoot > tr > td {
+        min-width: 0;
+        padding: 7px 2px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      thead > tr > th:not(.srk-problem-header) {
+        width: var(--vp-number-width);
+      }
+
+      thead > tr > th.srk--text-left {
+        width: var(--vp-name-width);
+      }
+
+      thead > tr > th.srk--text-right:not(.srk-series-header):not(.srk-dirt-header):not(.srk-se-header) {
+        width: var(--vp-metric-width);
+      }
+
+      thead > tr > th.srk-problem-header {
+        width: auto;
+        text-align: center;
+        vertical-align: top;
+      }
+
+      thead > tr > th.srk-series-segmented-column,
+      tbody > tr > td.srk-series-segmented-column {
+        padding-right: 5px;
+      }
+
+      tbody > tr > td.srk-user-cell {
+        max-width: none;
+      }
+    }
+
+    .srk-user-cell-content,
+    .srk-user-name-row,
+    .srk-organization-cell-content {
+      min-width: 0;
+    }
+
+    .srk-user-avatar img {
+      max-width: 18px;
+      max-height: 22px;
+      margin-right: 3px;
+    }
+
+    table tbody > tr > td .srk-user-secondary-text {
+      font-size: min(12px, var(--vp-table-font-size));
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .srk-problem-stats,
+    .srk-prest-status-block-secondary,
+    .srk-prest-status-block-score-details {
+      font-size: min(11px, var(--vp-table-font-size));
+    }
+  }
+}
+
+.srk-common-table {
+  *, :before, :after {
+    box-sizing: content-box;
+  }
+}
+
+.srk-ranklist-mobile-settings-action {
+  display: none;
+}
+
+.srk-ranklist-settings-modal {
+  --srk-ranklist-settings-section-title-color: rgba(0, 0, 0, 0.88);
+  --srk-ranklist-settings-section-divider-color: rgba(0, 0, 0, 0.12);
+  --srk-ranklist-settings-tip-icon-color: rgba(0, 0, 0, 0.42);
+
+  .srk-ranklist-settings-section + .srk-ranklist-settings-section {
+    margin-top: 24px;
+  }
+
+  h3 {
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--srk-ranklist-settings-section-divider-color);
+    padding: 0 0 8px;
+    color: var(--srk-ranklist-settings-section-title-color);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 22px;
+  }
+
+  .srk-ranklist-setting-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+  }
+
+  .srk-ranklist-setting-label {
+    flex: 0 0 190px;
+    white-space: nowrap;
+  }
+
+  .srk-ranklist-setting-label-with-tip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .srk-ranklist-setting-tip {
+    display: inline-flex;
+    position: relative;
+    align-items: center;
+  }
+
+  .srk-ranklist-setting-label-tip-button {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    padding: 0;
+    color: var(--srk-ranklist-settings-tip-icon-color, rgba(0, 0, 0, 0.42));
+    cursor: pointer;
+  }
+
+  .srk-ranklist-setting-label-tip-button:hover,
+  .srk-ranklist-setting-label-tip-button:focus-visible,
+  .srk-ranklist-setting-tip.is-open .srk-ranklist-setting-label-tip-button {
+    color: rgb(var(--rankland-primary-rgb));
+  }
+
+  .srk-ranklist-setting-label-tip-icon {
+    width: 13px;
+    height: 13px;
+    flex: none;
+  }
+
+  .srk-ranklist-setting-control {
+    display: flex;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  .srk-ranklist-setting-toggle-group {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    row-gap: 4px;
+  }
+
+  .srk-ranklist-setting-toggle-item {
+    padding: 3px 10px;
+    font-size: 12px;
+  }
+
+  .srk-ranklist-switch {
+    flex: none;
+  }
+}
+
+/*
+  srk 渲染器组件当前还不支持指定 light/dark，仅根据系统自动适应。
+  所以先临时覆盖。后续支持时可移除。
+*/
+html.light {
+  --srk-color-user-second-name: #828282;
+  --srk-color-accepted-bg: #99ff99;
+  --srk-color-partial-bg: #ffeb99;
+  --srk-color-failed-bg: #ff9999;
+  --srk-color-frozen-bg: #c8d6fa;
+  --srk-color-fb-bg: #009900;
+  --srk-color-fb-text: #ffffff;
+  --srk-color-fb-attempted-text: #f0f0f0;
+  --srk-color-accepted-text: #009905;
+  --srk-color-partial-text: #e2a010;
+  --srk-color-failed-text: #c83939;
+  --srk-color-frozen-text: #304fa5;
+  --srk-color-fb-status-text: #009905;
+  --srk-color-gold: #f8bf29;
+  --srk-color-silver: #c0c0c0;
+  --srk-color-bronze: #d69872;
+  --srk-color-iron: #a94442;
+  --srk-color-marker-red: #ff8989;
+  --srk-color-marker-orange: #ffa67e;
+  --srk-color-marker-yellow: #fff275;
+  --srk-color-marker-green: #64de7c;
+  --srk-color-marker-blue: #6dbeff;
+  --srk-color-marker-purple: #d384ff;
+  --srk-color-marker-pink: #ffc9f2;
+}
+
+html.dark {
+  --srk-color-user-second-name: #a5a5a5;
+  --srk-color-accepted-bg: #084b00;
+  --srk-color-partial-bg: #695203;
+  --srk-color-failed-bg: #690700;
+  --srk-color-frozen-bg: #2f4a8e;
+  --srk-color-fb-bg: #248e18;
+  --srk-color-fb-text: #ffffff;
+  --srk-color-fb-attempted-text: #f0f0f0;
+  --srk-color-accepted-text: #5ce667;
+  --srk-color-partial-text: #ffd666;
+  --srk-color-failed-text: #ff7373;
+  --srk-color-frozen-text: #8fa4ff;
+  --srk-color-fb-status-text: #5ce667;
+  --srk-color-gold: #c39824;
+  --srk-color-silver: #adadad;
+  --srk-color-bronze: #b77750;
+  --srk-color-iron: #773b3a;
+  --srk-color-marker-red: #692424;
+  --srk-color-marker-orange: #6f3216;
+  --srk-color-marker-yellow: #6b620f;
+  --srk-color-marker-green: #20542b;
+  --srk-color-marker-blue: #3c6f98;
+  --srk-color-marker-purple: #54236f;
+  --srk-color-marker-pink: #79416c;
+}
+
+html.light .srk-progress-bar-container {
+  --color-progress-bar-normal-bg: #14c514;
+  --color-progress-bar-frozen-bg: #648fff;
+  --color-progress-bar-border-color: #cacaca;
+  --color-progress-bar-slider-bg: #eee;
+  --color-progress-bar-slider-border-color: #d2d2d2;
+  --color-progress-bar-live-text: #0faa0f;
+  --color-progress-bar-time-machine-text-color: #2e68ff;
+  --color-progress-bar-time-machine-text-shadow: 0 0 5px #f2f7ff, 0 0 10px #aec5ff, 0 0 15px #a0bbff, 0 0 20px white;
+}
+
+html.dark .srk-progress-bar-container {
+  --color-progress-bar-normal-bg: #1a740f;
+  --color-progress-bar-frozen-bg: #1440ab;
+  --color-progress-bar-border-color: #666;
+  --color-progress-bar-slider-bg: #bfbfbf;
+  --color-progress-bar-slider-border-color: #eee;
+  --color-progress-bar-live-text: #15d415;
+  --color-progress-bar-time-machine-text-color: #8fb1ff;
+  --color-progress-bar-time-machine-text-shadow: 0 0 5px #0058ff, 0 0 10px #0942d2, 0 0 15px #004aff, 0 0 20px white;
+}
+
+html.light .srk-main {
+  --srk-table-head-bg: rgba(255, 255, 255, 0.75);
+  --srk-table-head-solid-bg: #fff;
+  --srk-table-border: #ddd;
+  --srk-table-striped-bg: rgba(30, 30, 30, 0.06);
+}
+
+html.dark .srk-main {
+  --srk-table-head-bg: rgba(25, 25, 25, 0.75);
+  --srk-table-head-solid-bg: #191919;
+  --srk-table-border: #3a3a3a;
+  --srk-table-striped-bg: rgba(215, 215, 215, 0.08);
+}
+
+html.light .srk-main .srk-marker.srk-marker-dot {
+  border-color: #999;
+}
+
+html.dark .srk-main .srk-marker.srk-marker-dot {
+  border-color: #696969;
+}
+
+html.light .srk-solution-result-text {
+  --srk-color-accepted: #009a04;
+  --srk-color-accepted-masked: #03f90b;
+  --srk-color-rejected: #f75757;
+  --srk-color-frozen: #727bec;
+}
+
+html.dark .srk-solution-result-text {
+  --srk-color-accepted: #06a20a;
+  --srk-color-accepted-masked: #03f90b;
+  --srk-color-rejected: #e83a3a;
+  --srk-color-frozen: #737df9;
+}
+
+html.light .srk-user-modal-info {
+  --border-color: #777;
+  --divider-color: #ececec;
+}
+
+html.dark .srk-user-modal-info {
+  --border-color: #999;
+  --divider-color: #3e3e3e;
+}
+
+html.light .srk-general-modal-root {
+  --mask-bg: rgba(55, 55, 55, 0.6);
+  --content-bg: #fff;
+  --header-bg: #fff;
+  --header-color: rgba(0, 0, 0, 0.85);
+  --header-botder-bottom: #e9e9e9;
+  --close-color: #000;
+  --close-hover-color: #444;
+}
+
+html.dark .srk-general-modal-root {
+  --mask-bg: rgba(0, 0, 0, 0.65);
+  --content-bg: #222;
+  --header-bg: #222;
+  --header-color: rgba(255, 255, 255, 0.8);
+  --header-botder-bottom: #3b3b3b;
+  --close-color: rgba(255, 255, 255, 0.45);
+  --close-hover-color: #444;
+}
+
+html.dark .srk-ranklist-settings-modal {
+  --srk-ranklist-settings-section-title-color: rgba(255, 255, 255, 0.92);
+  --srk-ranklist-settings-section-divider-color: rgba(255, 255, 255, 0.16);
+  --srk-ranklist-settings-tip-icon-color: rgba(255, 255, 255, 0.5);
+}
+
+.srk-general-modal-root {
+  text-align: initial;
+}
+
+.srk-ranklist-setting-tip-popover {
+  z-index: 10000;
+  box-sizing: border-box;
+  width: max-content !important;
+  max-width: min(280px, calc(var(--radix-popover-content-available-width, 100vw) - 16px), calc(100vw - 32px)) !important;
+  animation: none !important;
+  border: 1px solid hsl(var(--border));
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 6px 16px rgba(0, 0, 0, 0.08), 0 9px 28px 8px rgba(0, 0, 0, 0.05);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5715;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.srk-ranklist-settings-intro p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.srk-ranklist-settings-intro-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+@container ranklist-progress (max-width: 720px) {
+  // Narrow embeds and desktop preview panes need the same layout as mobile.
+  [data-id='ranklist-progress'] .srk-progress-bar-container .srk-progress-secondary-area {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 12px;
+
+    .srk-progress-secondary-area-center {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      justify-self: center;
+    }
+
+    .srk-progress-secondary-area-left,
+    .srk-progress-secondary-area-right {
+      min-width: 0;
+      grid-row: 2;
+      font-size: 12px;
+    }
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .srk-ranklist-toolbar-with-filter {
+    position: relative;
+    display: block;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-ranklist-filter {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-ranklist-filter-primary {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-ranklist-org-filter {
+    width: auto;
+    min-width: 0;
+    gap: 6px;
+    flex: 0 0 auto;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-ranklist-org-select {
+    width: clamp(92px, 25vw, 126px);
+    max-width: none;
+    min-width: 0;
+    flex: none;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-multi-select {
+    width: auto;
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-ranklist-official-filter {
+    margin-left: 14px;
+    gap: 4px;
+    flex: 0 0 auto;
+  }
+
+  .srk-multi-select-dropdown {
+    width: clamp(92px, 42vw, 180px);
+    min-width: clamp(92px, 42vw, 180px);
+    max-width: calc(100vw - 72px);
+  }
+
+  .srk-ranklist-table-scroll {
+    overflow-x: visible;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-ranklist-marker-filter {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    white-space: nowrap;
+    scrollbar-width: thin;
+  }
+
+  .srk-ranklist-mobile-settings-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-ranklist-actions .srk-ranklist-settings-action {
+    display: none;
+  }
+
+  .srk-ranklist-toolbar-with-filter .srk-ranklist-actions {
+    width: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+    flex-wrap: nowrap;
+  }
+
+  .srk-ranklist-settings-modal .srk-ranklist-setting-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .srk-ranklist-settings-modal .srk-ranklist-setting-label {
+    flex-basis: auto;
+  }
+
+  .srk-ranklist-settings-modal .srk-ranklist-setting-control {
+    justify-content: flex-start;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+}
+
+.rankland-sonner-status-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  stroke-width: 2;
+}
+
+.rankland-sonner-success-icon {
+  color: rgb(34, 197, 94);
+}
+
+.rankland-sonner-error-icon {
+  color: rgb(239, 68, 68);
+}
+
+.rankland-sonner-warning-icon {
+  color: rgb(245, 158, 11);
+}
+
+.srk-preset-marker-red {
+  background-color: var(--srk-color-marker-red);
+}
+
+.srk-preset-marker-orange {
+  background-color: var(--srk-color-marker-orange);
+}
+
+.srk-preset-marker-yellow {
+  background-color: var(--srk-color-marker-yellow);
+}
+
+.srk-preset-marker-green {
+  background-color: var(--srk-color-marker-green);
+}
+
+.srk-preset-marker-blue {
+  background-color: var(--srk-color-marker-blue);
+}
+
+.srk-preset-marker-purple {
+  background-color: var(--srk-color-marker-purple);
+}
+
+.srk-preset-marker-pink {
+  background-color: var(--srk-color-marker-pink);
+}
