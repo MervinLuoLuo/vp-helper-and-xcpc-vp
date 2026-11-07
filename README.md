@@ -166,6 +166,19 @@ export VP_XCPC_PORT=5180
 
 仓库和安装包不包含任何比赛数据。首次使用时自动获取，优先从 [SRK Collection](https://github.com/algoux/srk-collection) 读取原赛档案，未收录时回退到 [XCPCIO board-data](https://github.com/xcpcio/board-data)。
 
+程序按标题自动定位 SRK 档案。只要自动定位失败，开赛前就会提示手动输入档案路径——包括标题本身无法识别的情况（例如只有届数没有年份的「第二十届东北地区大学生程序设计竞赛」），这类比赛改用平台原题作为文件夹名。
+
+```text
+No SRK archive was found for this contest automatically.
+Enter its path inside algoux/srk-collection, for example:
+  official/provincial/js/jscpc10th.srk.json
+SRK path (blank to skip):
+```
+
+输入的路径省略 `.srk.json` 会自动补上；直接回车则跳过，回退到 XCPCIO。填过的路径存进该次 VP 的状态，`Ctrl+B`、`D` 后重进不会重复询问。
+
+XCPCIO 的省赛目录用完整拼音（`jiangsu`），SRK 用两位首字母（`js`），两套命名分别处理。
+
 生成的数据保存在用户自己的 `~/.cache/vp/originals/`（设置 `XDG_CACHE_HOME` 时使用 `$XDG_CACHE_HOME/vp/originals/`），后续使用复用缓存。缓存可以删除，下次使用会重新获取；首次获取需要网络。不需要修改仓库或手动添加比赛 JSON 文件。无法取得完整可靠原赛数据的比赛，仍显示本人成绩和提交，并说明参考排名或统计缺失的原因。XCPCIO 的 MIT 许可证保留在 `third_party/xcpcio/LICENSE`。
 
 SRK Collection 的档案按其 AGPL-3.0 许可证提供，来源和许可证保留在 `third_party/srk/`；仓库仅包含独立编写的档案读取器，不内置 SRK 比赛数据或组件代码。

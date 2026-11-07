@@ -17,6 +17,16 @@ from .parsing import ccpc_reveal_count, directory_name, js_value, medals_from_ht
 from .scoring import verdict
 
 
+def _fallback_name(titles: list[str]) -> str:
+    """A readable folder name for a title the parser cannot classify."""
+    for title in titles:
+        cleaned = re.sub(r"[\\/:*?\"<>|]+", " ", title or "")
+        cleaned = " ".join(cleaned.split()).strip(" .-")
+        if len(cleaned) >= 4:
+            return cleaned[:80]
+    raise VPError("QOJ returned no usable contest title.")
+
+
 class QOJ:
     def __init__(self, url: str, account: dict):
         self.url = url
@@ -49,7 +59,12 @@ class QOJ:
         soup = self._page()
         titles = [h.get_text(" ", strip=True) for h in soup.select("h1")]
         titles.extend(a.get_text(" ", strip=True) for a in soup.select('a[href*="?v="]'))
-        name = directory_name(titles)
+        try:
+            name = directory_name(titles)
+        except VPError:
+            # An unrecognised title still gets a usable directory; the archive
+            # path is asked for later, where a terminal is available.
+            name = _fallback_name(titles)
         # The generated name drops the Chinese series words a provincial SRK file
         # abbreviates; keep the platform title so its ordinal stays auditable.
         original_title = next((title for title in titles if re.search(r"第[一二三四五六七八九十百零〇\d]+届", title)), "")

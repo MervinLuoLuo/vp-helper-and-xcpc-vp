@@ -412,6 +412,7 @@ def prepare_start(url: str) -> tuple[Path, dict]:
         verify_login(platform, api)
         console.print("Reading contest information…", markup=False)
         contest = api.prepare()
+        ask_srk_archive(contest)
         root = desktop()
         root.mkdir(parents=True, exist_ok=True)
         contest.directory_name = " ".join(contest.directory_name.split())
@@ -461,6 +462,36 @@ def start(url: str) -> None:
         launch(path, state)
         deliver_xcpc(path, state)
         attach(state["tmux_session"])
+
+
+def ask_srk_archive(contest: Contest) -> None:
+    """Let the user name the archive path when the title alone cannot find it.
+
+    Only a title the parser could not resolve reaches here, because guessing a
+    path for a contest we did understand would invite the wrong edition.
+    """
+    from . import srk
+    # Ask whenever the archive cannot be located, including titles the parser
+    # could not classify at all; those are exactly the cases a human can place.
+    if srk.source_url(contest):
+        return
+    handle, interactive = terminal_handle()
+    try:
+        if not interactive:
+            return
+        console.print("", markup=False)
+        console.print("No SRK archive was found for this contest automatically.", markup=False)
+        console.print("Enter its path inside algoux/srk-collection, for example:", markup=False)
+        console.print("  official/provincial/js/jscpc10th.srk.json", markup=False)
+        answer = ask("SRK path (blank to skip): ", handle=handle).strip()
+        if not answer:
+            return
+        if not answer.endswith(".srk.json"):
+            answer += ".srk.json"
+        contest.extra["srk_source"] = answer.lstrip("/")
+    finally:
+        if handle is not None:
+            handle.close()
 
 
 def print_url(url: str) -> None:

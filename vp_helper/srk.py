@@ -14,6 +14,11 @@ from .scoring import score_submissions, verdict
 
 
 def source_url(contest: Contest) -> str | None:
+    # A path the user typed wins: it is the only way in for a contest whose
+    # title the parser cannot turn into an archive location.
+    manual = contest.extra.get("srk_source")
+    if isinstance(manual, str) and manual.strip():
+        return _RAW.format(manual.strip().lstrip("/"))
     if is_provincial(contest):
         return provincial_source(contest)
     match = re.fullmatch(r"(20\d{2}) CCPC ([A-Za-z][A-Za-z .-]*) Reg", contest.name)
@@ -84,8 +89,10 @@ def _title_matches(title: str, expected: str) -> bool:
     # never accept a title that contradicts the requested series.
     if _series_conflict(left, right):
         return False
-    province = _province_in(right)
-    if province is None or province not in _place_of(left):
+    # Province words are matched against the original titles: normalising them
+    # would glue "The 2025 Jiangsu" into one token and defeat the word boundary.
+    province = _province_in(expected)
+    if province is None or province not in _place_of(title):
         return False
     numbers = set(re.findall(r"\d+", left)) & set(re.findall(r"\d+", right))
     # The ordinal alone identifies an edition whose year the archive omits.
@@ -120,18 +127,16 @@ _PROVINCE_WORDS = {name: name for name in _PROVINCE_ABBREVIATIONS}
 
 
 def _place_of(text: str) -> str:
-    """The regions a title can name, with 东北 resolved as a region or absent."""
-    places = [name for name in _PROVINCE_WORDS if name != "东北" and name in text]
-    if re.search(r"东北(?:地区|赛区|三省)", text):
-        places.append("东北")
-    return " ".join(places)
+    """The regions a title can name, resolved through both spellings."""
+    from .parsing import _province_of
+    found = _province_of(text)
+    return found or ""
 
 
 def _province_in(text: str) -> str | None:
-    # 东北 must name the region, not a school such as 东北林业大学.
-    if re.search(r"东北(?:地区|赛区|三省)", text):
-        return "东北"
-    return next((name for name in _PROVINCE_WORDS if name != "东北" and name in text), None)
+    """The province a title names, in Chinese or English spelling."""
+    from .parsing import _province_of
+    return _province_of(text)
 
 
 def provincial_source(contest: Contest) -> str | None:
