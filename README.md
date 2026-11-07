@@ -78,6 +78,8 @@ vp qoj 3169
 
 也支持 `vp CONTEST_URL`（QOJ 或 ucup 比赛链接）。计分范围限定为 ICPC；非 ICPC 赛制的比赛会在开赛前被拒绝。
 
+当无法自动通过 qoj 比赛名匹配从[algoux/srk-collection](https://github.com/algoux/srk-collection) 获取榜单文件时，会询问 [algoux/srk-collection](https://github.com/algoux/srk-collection) 仓库中榜单文件的相对位置，需要手动输入。
+
 自动下载题面完成后会要求输入 `Team name` 和 `School / organization` ，作为 `xcpc-vp` 前端页面中显示的队伍名与学校(`Team name` 为空时则不启用 `xcpc-vp` 回放)
 
 之后会输出 `xcpc-vp` 的前端页面地址，需要自行在浏览器中打开。同时需要在 qoj 上手动开启 VP，开启完成后回车即可进入 vp TUI。
