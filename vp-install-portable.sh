@@ -182,6 +182,17 @@ install_deps() {
 # ---------------------------------------------------------------------------
 # 源码处理：复制（不动 git 工作区）、给提交脚本换 shebang、打 relocatable 补丁
 # ---------------------------------------------------------------------------
+# 把脚本第一行换成给定的 shebang。BSD 与 GNU 的 sed -i 参数形式不同，
+# 直接重写文件可以跨平台，不依赖任何 sed 实现。
+rewrite_shebang() {
+    local file="$1" python="$2"
+    local first
+    IFS= read -r first < "$file" || true
+    printf '#!%s\n' "$python" > "$file.new"
+    tail -n +2 "$file" >> "$file.new"
+    mv "$file.new" "$file"
+}
+
 stage_app() {
     rm -rf "$VP_ROOT/app"
     mkdir -p "$VP_ROOT/app"
@@ -197,8 +208,9 @@ stage_app() {
 
     local f
     for f in "$VP_ROOT/app/third_party/qoj/submit"; do
-        # 原脚本首行写死 /opt/vp-helper/current/venv/bin/python；改用本项目 venv
-        sed -i "1s|.*|#!$VENV/bin/python|" "$f"
+        # 原脚本首行写死 /opt/vp-helper/current/venv/bin/python；改用本项目 venv。
+        # 用 bash 重写而非 sed -i：BSD sed 要求 -i 带后缀参数，不同于 GNU sed。
+        rewrite_shebang "$f" "$VENV/bin/python"
         chmod 755 "$f"
     done
 
