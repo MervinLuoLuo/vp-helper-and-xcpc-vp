@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .models import Cell, Contest, Medals, Reference, Rules, Submission, TeamScore, VPError
 
 
@@ -27,6 +29,11 @@ def verdict(value: str | None, score: float | None = None) -> str:
         return value
     if value in _VERDICTS:
         return _VERDICTS[value]
+    # QOJ sometimes reports a combined status. "AC,WA" means the offline tests
+    # passed but a later hack is still wrong, so it scores as a wrong answer.
+    parts = [part.strip() for part in re.split(r"[,/|]+", value) if part.strip()]
+    if len(parts) > 1 and all(part in _VERDICTS for part in parts):
+        return _VERDICTS["WA" if any(_VERDICTS[p] == "WRONG-ANSWER" for p in parts) else parts[-1]]
     for label in sorted(_VERDICTS, key=len, reverse=True):
         if len(label) > 3 and value.startswith(label + " ON TEST "):
             return _VERDICTS[label]

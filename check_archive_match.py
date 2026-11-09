@@ -56,6 +56,11 @@ def demo() -> None:
     ], 0.0)
     assert [e["result"] for e in payload["events"]] == ["AC", "WA"], payload
     assert payload["events"][1]["timeMs"] == 900500
+    # "AC,WA" is QOJ's offline-pass / hacked-later status: a wrong answer.
+    from vp_helper.scoring import verdict
+    assert verdict("AC,WA") == "WRONG-ANSWER"
+    assert verdict("AC, WA") == "WRONG-ANSWER"
+    assert verdict("AC") == "CORRECT"
     assert _common("abcd", "xbcdy") == 3
     # Both timers anchor on the native VP start, so a submission offset lands on
     # the same virtual second in the replay.
