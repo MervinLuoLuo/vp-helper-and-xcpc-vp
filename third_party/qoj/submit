@@ -164,7 +164,14 @@ def submit(url: str, lang: str, code: str, problem: str) -> None:
         if current.status_code == 200:
             sid = qoj_id_from_list(current.text, previous, contest_base_url, urlsplit(url).path.rsplit('/', 1)[-1], handle)
     if sid is None:
-        raise SystemExit('Submission was not confirmed. Check the submissions page before retrying.')
+        # The judge answered, but neither the redirect nor the list identified
+        # the new submission. Report what came back so a platform difference
+        # (curl_cffi's macOS build, a proxy, a changed page) is diagnosable.
+        raise SystemExit(
+            'Submission was not confirmed. Check the submissions page before retrying.\n'
+            f'  status: {submit_response.status_code}\n'
+            f'  location: {submit_response.headers.get("Location")!r}\n'
+            f'  baseline: {"yes" if previous is not None else "no"}')
     print(f'Submission #{sid}: PENDING', flush=True)
     try:
         record_receipt(contest, sid, problem, submitted_at)
