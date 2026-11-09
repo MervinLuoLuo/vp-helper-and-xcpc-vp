@@ -32,7 +32,7 @@ except ImportError:
 import time
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
-from selectolax.lexbor import LexborHTMLParser
+from bs4 import BeautifulSoup
 from vp_helper.receipts import qoj_id_from_list, qoj_submission_id, qoj_submission_ids, record_receipt
 from vp_helper.models import VPError
 from vp_helper.submit_context import submission_configuration
@@ -117,14 +117,14 @@ def submit(url: str, lang: str, code: str, problem: str) -> None:
     response = session.get(url, timeout=(10, 40))
     response.raise_for_status()
     if isinstance(response.url, str) and urlsplit(response.url).path in ('/login', '/enter'):
-        raise SystemExit('QOJ login expired. Log in to QOJ in Firefox, then run submit again.')
+        raise SystemExit('QOJ login expired. Run vp login qoj to refresh the cookie.')
 
-    parser = LexborHTMLParser(response.text)
-    token_node = parser.css_first('input[name="_token"]')
+    # bs4 is already a project dependency; selectolax publishes no macOS wheel.
+    token_node = BeautifulSoup(response.text, 'html.parser').select_one('input[name="_token"]')
     dynamic_token = ''
 
     if token_node:
-        dynamic_token = token_node.attributes.get('value', '')
+        dynamic_token = token_node.get('value', '')
 
     if not dynamic_token:
         raise RuntimeError('Failed to get token')

@@ -166,17 +166,28 @@ create_venv() {
 install_deps() {
     local source="$SRC"
     [[ -d "$VP_ROOT/app" ]] && source="$VP_ROOT/app"
+    # The vendored wheels are Linux x86_64 only. cffi and curl_cffi are native
+    # extensions, so another platform has to resolve them from PyPI.
+    local offline=1
+    if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+        offline=0
+        info "非 Linux x86_64：改为从 PyPI 安装（需要网络）"
+    fi
+    # submit only needs bs4 and the standard library; the rest come from the
+    # project's own pyproject.toml. Dropping unused native deps also keeps the
+    # macOS path to pure wheels.
+    local -a args=(-e "$source")
+    if [[ "$offline" == 1 ]]; then
+        args=(--no-index --find-links "$WHEELS" "${args[@]}")
+    fi
     if ! "$VENV/bin/python" -m pip --version >/dev/null 2>&1; then
         # uv 创建的 venv 可能没有 pip，用 uv 装即可
         command -v uv >/dev/null 2>&1 || die "venv 中没有 pip，且找不到 uv"
         export_uv_dirs
-        uv pip install --python "$VENV/bin/python" --no-index --find-links "$WHEELS" \
-            -e "$source" selectolax lxml robobrowser 'Werkzeug==0.16.1' 'prettytable<4'
+        uv pip install --python "$VENV/bin/python" "${args[@]}"
         return
     fi
-    "$VENV/bin/python" -m pip install --disable-pip-version-check --no-index \
-        --find-links "$WHEELS" \
-        -e "$source" selectolax lxml robobrowser 'Werkzeug==0.16.1' 'prettytable<4'
+    "$VENV/bin/python" -m pip install --disable-pip-version-check "${args[@]}"
 }
 
 # ---------------------------------------------------------------------------
