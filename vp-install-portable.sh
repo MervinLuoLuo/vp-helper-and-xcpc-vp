@@ -441,7 +441,7 @@ EOF
     step "复制源码并为提交脚本换 shebang"
     stage_app
 
-    step "离线安装依赖（$WHEELS）"
+    step "离线安装依赖（${WHEELS}）"
     install_deps
 
     step "写入入口与配置"
@@ -474,7 +474,7 @@ EOF
   2. 验证:  vp qoj <比赛ID>
 
 注意:
-  - 比赛目录: $WORK_DIR（存在 config.json 的 work_directory）
+  - 比赛目录: ${WORK_DIR}（存在 config.json 的 work_directory）
     要改位置: 重跑 install 并输入新路径，或直接编辑 work_directory。
   - 卸载:  $0 uninstall   （同时删除程序、状态、缓存和账号配置 ~/.config/vp）
 EOF
@@ -640,7 +640,7 @@ case "$command" in
         cat <<EOF
 用法: $0 <命令>
 
-  install     安装到 \$VP_ROOT（默认 ~/.local/lib/vp-helper）；需要 tmux 已安装
+  install     安装到 \${VP_ROOT}（默认 ~/.local/lib/vp-helper）；需要 tmux 已安装
   env         打印需要 source 的环境变量
   check       检查依赖、安装完整性与连通性
   uninstall   删除本次安装，包括账号配置（~/.config/vp 或 \$XDG_CONFIG_HOME/vp）
@@ -648,5 +648,5 @@ case "$command" in
 可调环境变量: VP_ROOT  VP_STATE_DIR  VP_PYTHON  VP_START_FILE
 EOF
         ;;
-    *) echo "未知命令: $command（可选 install/env/check/uninstall）" >&2; exit 2 ;;
+    *) echo "未知命令: ${command}（可选 install/env/check/uninstall）" >&2; exit 2 ;;
 esac
